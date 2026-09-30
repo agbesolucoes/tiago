@@ -100,12 +100,15 @@ async function serveStatic(req: Request) {
   if (found) {
     // Arquivos em /assets têm hash no nome: podem ficar em cache para sempre.
     const cache = pathname.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache";
-    return new Response(req.method === "HEAD" ? null : found.body, { headers: { "content-type": found.type, "cache-control": cache } });
+    // Tamanho explícito: proxies na frente do app (como o da Hostinger) não guardam uma resposta cortada como se fosse inteira.
+    const headers = { "content-type": found.type, "cache-control": cache, "content-length": String(found.body.length) };
+    return new Response(req.method === "HEAD" ? null : found.body, { headers });
   }
   // Rotas das telas (ex.: /tarefas) abrem o index.html, como o single-page-application da Cloudflare.
   const index = await file("/index.html");
   if (!index) return new Response("Telas não encontradas: rode `npm run build` antes de iniciar.", { status: 500 });
-  return new Response(req.method === "HEAD" ? null : index.body, { headers: { "content-type": index.type, "cache-control": "no-cache" } });
+  const headers = { "content-type": index.type, "cache-control": "no-cache", "content-length": String(index.body.length) };
+  return new Response(req.method === "HEAD" ? null : index.body, { headers });
 }
 
 async function handle(req: Request) {
