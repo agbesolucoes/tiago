@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, gte, inArray, lt, ne, or, sql, type SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { enqueueStatements, processJobs } from "../integrations/calendar-sync";
 import { auditLog, events, ideas, memberships, users, ideaStatuses, ideaTags, priorities, projects, projectStatuses, tags, tasks, taskStatuses } from "../db/schema";
 import { newId } from "../lib/crypto";
 import { localDayRange } from "../lib/time";
@@ -356,7 +357,9 @@ api.post("/events", async (c) => {
   checkRange(startAt, endAt);
   const values = { ...body, startAt, endAt, timezone: ctx.timezone };
   const row = { id: newId(), workspaceId: ctx.workspaceId, createdBy: ctx.userId, ...values };
-  await ctx.db.batch([ctx.db.insert(events).values(row), auditInsert(ctx, "event", row.id, "create", null, values)]);
+  const sync = await enqueueStatements(ctx.db, ctx.workspaceId, { id: row.id, calendarId: null, remoteId: null }, "event.upsert");
+  await ctx.db.batch([ctx.db.insert(events).values(row), auditInsert(ctx, "event", row.id, "create", null, values), ...sync]);
+  if (sync.length) pushSoon(c);
   return c.json({ ...serialize(await getEvent(ctx, row.id)), conflicts: await conflicts(ctx, row.id, startAt, endAt) }, 201);
 });
 
@@ -371,13 +374,16 @@ api.patch("/events/:id", async (c) => {
   const endAt = body.endAt !== undefined ? toUtc(ctx, body.endAt, "endAt")! : before.endAt;
   checkRange(startAt, endAt);
   const values = { ...body, startAt, endAt };
+  const sync = await enqueueStatements(ctx.db, ctx.workspaceId, before, "event.upsert");
   await ctx.db.batch([
     ctx.db
       .update(events)
       .set({ ...values, updatedAt: Date.now() })
       .where(and(eq(events.id, before.id), eq(events.workspaceId, ctx.workspaceId))),
     auditInsert(ctx, "event", before.id, "update", pick(before, values), values),
+    ...sync,
   ]);
+  if (sync.length) pushSoon(c);
   return c.json({ ...serialize(await getEvent(ctx, before.id)), conflicts: await conflicts(ctx, before.id, startAt, endAt) });
 });
 
@@ -385,12 +391,26 @@ api.delete("/events/:id", async (c) => {
   const ctx = c.get("ctx");
   requireRole(ctx, "owner", "admin");
   const before = await getEvent(ctx, c.req.param("id"));
+  const sync = await enqueueStatements(ctx.db, ctx.workspaceId, before, "event.delete");
   await ctx.db.batch([
     ctx.db.delete(events).where(and(eq(events.id, before.id), eq(events.workspaceId, ctx.workspaceId))),
     auditInsert(ctx, "event", before.id, "delete", before, null),
+    ...sync,
   ]);
+  if (sync.length) pushSoon(c);
   return c.body(null, 204);
 });
+
+/** Envia a fila ao Google logo após responder, sem esperar o cron. */
+function pushSoon(c: Context<AppEnv>) {
+  if (c.env.PUSH_ON_WRITE === "false") return;
+  const ctx = c.get("ctx");
+  try {
+    c.executionCtx.waitUntil(processJobs({ db: ctx.db, env: c.env }, { workspaceId: ctx.workspaceId }).catch((e) => console.error("sync", e)));
+  } catch {
+    // Sem ExecutionContext (ex.: alguns testes): o cron envia depois.
+  }
+}
 
 function checkRange(startAt: number, endAt: number) {
   if (endAt < startAt) throw new ValidationError([{ path: "endAt", message: "término antes do início" }]);

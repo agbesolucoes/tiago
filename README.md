@@ -34,6 +34,8 @@ Todas as rotas exigem sessão. O workspace é o do usuário, ou o informado em `
 |---|---|
 | `GET /api/me` | usuário, workspace, papel e fuso |
 | `GET /api/members` | membros do workspace |
+| `GET/PATCH/DELETE /api/integrations/google` | status do Google Agenda, agendas sincronizadas e de destino, desconectar |
+| `POST /api/integrations/google/sync` | envia a fila e importa agora |
 | `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/:id` | projetos (`?status=&q=`) |
 | `GET/POST /api/tasks`, `GET/PATCH/DELETE /api/tasks/:id` | tarefas (`?status=&priority=&projectId=&assigneeId=&dueFrom=&dueTo=&q=`) |
 | `GET/POST /api/ideas`, `GET/PATCH/DELETE /api/ideas/:id` | ideias com etiquetas (`?status=&category=&q=`) |
@@ -46,9 +48,21 @@ Datas: aceita ISO com offset (`2026-10-01T09:00:00-03:00`) ou hora local (`2026-
 
 Excluir exige papel owner ou admin. Cada gravação e sua linha em `audit_log` (com valores anteriores e novos) vão num mesmo `batch` atômico do D1.
 
+## Google Agenda
+
+Em **Configurações**, o dono ou um administrador conecta a conta Google (autorização separada do login, com acesso offline e só os escopos `calendar.calendarlist.readonly` e `calendar.events`). Os tokens ficam cifrados com AES-GCM (`TOKEN_ENCRYPTION_KEY`).
+
+- **Google → Central:** sync inicial paginado (a partir de 30 dias atrás) e depois incremental com `syncToken`; um 410 refaz o sync completo. Roda a cada 5 minutos (cron) e no botão **Sincronizar agora**. Eventos cancelados no Google são removidos aqui.
+- **Central → Google:** criar, editar ou excluir um compromisso grava, no mesmo batch, uma tarefa na fila `sync_jobs` (uma por evento; edições seguidas se juntam). A fila é enviada logo após a gravação e pelo cron. O id do evento no Google deriva do id local, então um reenvio nunca duplica. Falhas transitórias voltam com backoff (1 min, 2 min, 4 min… até 6 h, 8 tentativas); as permanentes marcam o compromisso com erro. Token revogado marca a conta e a fila espera a reconexão.
+- O compromisso só aparece como sincronizado depois da resposta do Google e do vínculo gravado. Convites nunca são enviados (`sendUpdates=none`).
+- Uma alteração local que ainda está na fila vence a versão do Google na próxima importação.
+- Desconectar revoga o token no Google, apaga a conta e a fila; os compromissos continuam na Central.
+
+O passo a passo das credenciais está em [docs/configurar-google-cloud.md](docs/configurar-google-cloud.md).
+
 ## Publicar
 
 1. `wrangler d1 create central-organizacao` e copie o `database_id` para o `wrangler.jsonc`.
 2. Ajuste `APP_URL` e `ALLOWED_EMAILS` em `vars`.
-3. `wrangler secret put GOOGLE_CLIENT_ID` e `wrangler secret put GOOGLE_CLIENT_SECRET`.
+3. `wrangler secret put` para `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `TOKEN_ENCRYPTION_KEY` (veja [docs/configurar-google-cloud.md](docs/configurar-google-cloud.md)).
 4. `npm run deploy` (build, migrations remotas e deploy).

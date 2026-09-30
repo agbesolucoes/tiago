@@ -90,6 +90,8 @@ export function AgendaPage() {
                           </span>
                           <span className="event-title">{e.title}</span>
                           {e.projectId && <span className="event-project">{projectName(e.projectId)}</span>}
+                          {e.syncStatus === "pending" && <span className="event-sync">Enviando ao Google…</span>}
+                          {e.syncStatus === "error" && <span className="event-sync error">Erro ao enviar ao Google</span>}
                           {conflicting.has(e.id) && (
                             <span className="event-conflict">
                               <Icon name="alert" size={12} /> Conflito

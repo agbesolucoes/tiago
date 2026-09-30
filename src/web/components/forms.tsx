@@ -435,7 +435,12 @@ export function EventForm({ event, date, onClose, onSaved }: { event?: CalendarE
         <Field label="Descrição">
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
         </Field>
-        <p className="muted small">Horários no fuso {useApp().me.workspace.timezone}. Ainda não sincroniza com o Google Agenda.</p>
+        <p className="muted small">
+          Horários no fuso {useApp().me.workspace.timezone}.
+          {event?.syncStatus === "synced" && " Sincronizado com o Google Agenda."}
+          {event?.syncStatus === "pending" && " Aguardando envio ao Google Agenda."}
+          {event?.syncStatus === "error" && " O último envio ao Google falhou; salvar de novo tenta outra vez."}
+        </p>
       </form>
     </Modal>
   );

@@ -6,7 +6,11 @@ export interface Env {
   ALLOWED_EMAILS: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
+  /** 32 bytes em base64 para cifrar os tokens do Google (AES-GCM). `openssl rand -base64 32` */
+  TOKEN_ENCRYPTION_KEY: string;
   /** "true" libera /auth/dev-login em localhost, para desenvolver sem Google. Nunca em produção. */
   DEV_LOGIN?: string;
+  /** "false" desliga o envio imediato ao Google após cada gravação (fica só o cron). */
+  PUSH_ON_WRITE?: string;
   ASSETS?: Fetcher;
 }

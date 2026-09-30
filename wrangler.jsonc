@@ -8,13 +8,15 @@
     "directory": "./dist/client",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/auth/*"]
+    "run_worker_first": ["/api/*", "/auth/*", "/integrations/*"]
   },
+  // Sincronização com o Google Agenda a cada 5 minutos.
+  "triggers": { "crons": ["*/5 * * * *"] },
   "vars": {
     "APP_URL": "https://central.example.com",
     "ALLOWED_EMAILS": "tdeottis@gmail.com"
   },
-  // GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET: `wrangler secret put`, nunca no Git.
+  // GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET e TOKEN_ENCRYPTION_KEY: `wrangler secret put`, nunca no Git.
   "d1_databases": [
     { "binding": "DB", "database_name": "central-organizacao", "database_id": "local", "migrations_dir": "migrations" }
   ]

@@ -202,3 +202,80 @@ export const auditLog = sqliteTable(
   },
   (t) => [index("audit_ws_entity_idx").on(t.workspaceId, t.entity, t.entityId)],
 );
+
+// ---------- Integrações (Google) ----------
+
+export const integrationStatuses = ["active", "revoked", "error"] as const;
+
+/** Conta Google autorizada para Calendar/Drive. Tokens sempre cifrados (AES-GCM). */
+export const integrationAccounts = sqliteTable(
+  "integration_accounts",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text({ enum: ["google"] }).notNull(),
+    externalSub: text().notNull(),
+    email: text().notNull(),
+    scopes: text().notNull(),
+    refreshTokenEnc: text().notNull(),
+    accessTokenEnc: text(),
+    accessTokenExpiresAt: integer(),
+    /** Agenda que recebe os compromissos criados na Central. */
+    defaultCalendarId: text(),
+    status: text({ enum: integrationStatuses }).notNull().default("active"),
+    lastError: text(),
+    lastSyncAt: integer(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("integration_ws_provider_idx").on(t.workspaceId, t.provider)],
+);
+
+export const calendars = sqliteTable(
+  "calendars",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    accountId: text()
+      .notNull()
+      .references(() => integrationAccounts.id, { onDelete: "cascade" }),
+    googleCalendarId: text().notNull(),
+    summary: text().notNull(),
+    primary: integer({ mode: "boolean" }).notNull().default(false),
+    writable: integer({ mode: "boolean" }).notNull().default(false),
+    selected: integer({ mode: "boolean" }).notNull().default(false),
+    syncToken: text(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("calendars_account_gid_idx").on(t.accountId, t.googleCalendarId)],
+);
+
+export const syncJobStatuses = ["pending", "done", "failed"] as const;
+
+/** Fila de envio ao Google, com idempotência e repetição com backoff. */
+export const syncJobs = sqliteTable(
+  "sync_jobs",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    kind: text({ enum: ["event.upsert", "event.delete"] }).notNull(),
+    eventId: text().notNull(),
+    /** Para exclusões o evento local já não existe: guardamos onde ele está no Google. */
+    payload: text({ mode: "json" }).$type<{ calendarId?: string; remoteId?: string }>(),
+    idempotencyKey: text().notNull().unique(),
+    status: text({ enum: syncJobStatuses }).notNull().default("pending"),
+    attempts: integer().notNull().default(0),
+    nextAttemptAt: integer().notNull(),
+    error: text(),
+    ...timestamps,
+  },
+  (t) => [index("sync_jobs_due_idx").on(t.status, t.nextAttemptAt)],
+);
