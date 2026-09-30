@@ -13,6 +13,8 @@ import { getDb } from "./db/client";
 import { auditLog, integrationAccounts, users } from "./db/schema";
 import type { Env } from "./env";
 import { refreshCalendarList, syncAll, syncWorkspace } from "./integrations/calendar-sync";
+import { handleUpdate, sendDailySummaries, telegramEnabled } from "./integrations/telegram-bot";
+import type { TgUpdate } from "./integrations/telegram-client";
 import { newId } from "./lib/crypto";
 import { encryptSecret } from "./lib/secret";
 
@@ -204,11 +206,33 @@ app.get("/integrations/google/callback", requireMember, async (c) => {
   return back("conectado");
 });
 
+// ---------- Telegram ----------
+
+async function sameSecret(a: string, b: string) {
+  const enc = new TextEncoder();
+  const [x, y] = await Promise.all([crypto.subtle.digest("SHA-256", enc.encode(a)), crypto.subtle.digest("SHA-256", enc.encode(b))]);
+  return crypto.subtle.timingSafeEqual(x, y);
+}
+
+app.post("/integrations/telegram/webhook", async (c) => {
+  if (!telegramEnabled(c.env)) return c.body(null, 404);
+  // O Telegram manda o segredo registrado no setWebhook; sem ele, a requisição não veio do Telegram.
+  const secret = c.req.header("x-telegram-bot-api-secret-token") ?? "";
+  if (!(await sameSecret(secret, c.env.TELEGRAM_WEBHOOK_SECRET!))) return c.body(null, 401);
+  const update = (await c.req.json().catch(() => null)) as TgUpdate | null;
+  if (!update || typeof update.update_id !== "number") return c.json({ ok: true });
+  await handleUpdate({ db: getDb(c.env.DB), env: c.env }, update);
+  return c.json({ ok: true });
+});
+
+const DAILY_SUMMARY_CRON = "0 11 * * *";
+
 export default {
   fetch: app.fetch,
-  // Cron: envia a fila e traz as mudanças do Google a cada 5 minutos.
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+  // Crons: a cada 5 minutos envia a fila e traz as mudanças do Google; às 8h de São Paulo (11h UTC) manda o resumo do dia.
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     const db = getDb(env.DB);
-    ctx.waitUntil(syncAll({ db, env }));
+    if (controller.cron === DAILY_SUMMARY_CRON) ctx.waitUntil(sendDailySummaries({ db, env }));
+    else ctx.waitUntil(syncAll({ db, env }));
   },
 } satisfies ExportedHandler<Env>;
