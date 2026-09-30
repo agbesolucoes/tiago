@@ -243,7 +243,11 @@ app.get("/integrations/google/callback", requireMember, async (c) => {
 async function sameSecret(a: string, b: string) {
   const enc = new TextEncoder();
   const [x, y] = await Promise.all([crypto.subtle.digest("SHA-256", enc.encode(a)), crypto.subtle.digest("SHA-256", enc.encode(b))]);
-  return crypto.subtle.timingSafeEqual(x, y);
+  // Comparação em tempo constante feita à mão: crypto.subtle.timingSafeEqual só existe na Cloudflare, não no Node.
+  const [u, v] = [new Uint8Array(x), new Uint8Array(y)];
+  let diff = 0;
+  for (let i = 0; i < u.length; i++) diff |= u[i] ^ v[i];
+  return diff === 0;
 }
 
 app.post("/integrations/telegram/webhook", async (c) => {

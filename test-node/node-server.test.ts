@@ -104,3 +104,21 @@ describe("servidor Node com SQLite", () => {
     expect(() => cronMatches("0 6 * * 1", new Date())).toThrow();
   });
 });
+
+describe("webhook do Telegram no Node", () => {
+  it("confere o segredo sem APIs exclusivas da Cloudflare", async () => {
+    const tg = { ...env, TELEGRAM_BOT_TOKEN: "1:x", TELEGRAM_WEBHOOK_SECRET: "segredo" };
+    const post = (secret: string) =>
+      worker.fetch(
+        new Request("http://localhost/integrations/telegram/webhook", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": secret },
+          body: JSON.stringify({ update_id: 1 }),
+        }),
+        tg,
+        ctx,
+      );
+    expect((await post("errado")).status).toBe(401);
+    expect((await post("segredo")).status).toBe(200);
+  });
+});
