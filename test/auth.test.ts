@@ -54,7 +54,9 @@ describe("login Google", () => {
     const start = await SELF.fetch("https://app.test/auth/login", { redirect: "manual" });
     const cookie = start.headers.get("set-cookie")!.split(";")[0];
     const res = await SELF.fetch("https://app.test/auth/callback?code=c&state=outro", { headers: { cookie }, redirect: "manual" });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/?erro=expirado");
+    expect(res.headers.get("set-cookie")).not.toMatch(/sid=/);
   });
 
   it("aceita id_token válido e envia o code_verifier", async () => {
@@ -73,6 +75,13 @@ describe("login Google", () => {
     ["email_verified", { email_verified: false }],
   ])("recusa id_token com %s inválido", async (_name, override) => {
     await expect(login({ ...good, ...override })).rejects.toThrow();
+  });
+});
+
+describe("login de desenvolvimento", () => {
+  it("fica desligado sem DEV_LOGIN", async () => {
+    const res = await SELF.fetch("http://localhost/auth/dev-login?email=dono@exemplo.com", { redirect: "manual" });
+    expect(res.status).toBe(404);
   });
 });
 

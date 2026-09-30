@@ -1,16 +1,24 @@
-# tiago — Central de Organização (backend, etapa 2)
+# tiago — Central de Organização
 
-Backend normalizado da Central de Organização: login Google, workspaces e API de tarefas, projetos, ideias e compromissos. Roda em Cloudflare Workers com D1 e Drizzle, a mesma stack do protótipo. A especificação está em [docs/PROJETO.md](docs/PROJETO.md) e o plano desta etapa em [docs/etapa-2-banco-e-login.md](docs/etapa-2-banco-e-login.md).
+Central de Organização: tarefas, projetos, ideias e agenda num só lugar, com login Google. Telas em React (Vite) e backend em Cloudflare Workers com D1 e Drizzle, publicados juntos num único Worker. A especificação está em [docs/PROJETO.md](docs/PROJETO.md) e o plano desta etapa em [docs/etapa-2-banco-e-login.md](docs/etapa-2-banco-e-login.md).
 
 ## Rodar
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars   # preencha as credenciais do Google
+cp .dev.vars.example .dev.vars   # preencha as credenciais do Google (ou use DEV_LOGIN, abaixo)
 npm run db:migrate:local
-npm run dev                      # http://localhost:8787
-npm test                         # testes no runtime do Workers com D1 local
+npm run dev                      # telas e API em http://localhost:5173
+npm test                         # testes da API no runtime do Workers com D1 local
+npm run typecheck
+npm run build
 ```
+
+Para desenvolver sem configurar o Google, coloque `DEV_LOGIN=true` no `.dev.vars` e abra `http://localhost:5173/auth/dev-login`. A rota só responde com essa variável ligada e em localhost; nunca configure `DEV_LOGIN` em produção.
+
+## Telas
+
+Painel (indicadores, próximas tarefas, agenda do dia e tarefas por status), tarefas em lista e Kanban (arrastar no computador, seletor de status no celular) com filtros por projeto, prioridade, status, responsável e prazo, projetos com progresso, ideias com etiquetas e conversão em tarefa ou projeto, agenda semanal com aviso de conflito, e busca geral. O layout é responsivo, com navegação inferior no celular, e segue o tema claro ou escuro do sistema. Se a gravação falhar, o formulário continua aberto com os dados.
 
 ## Login
 
@@ -25,6 +33,7 @@ Todas as rotas exigem sessão. O workspace é o do usuário, ou o informado em `
 | Rota | O que faz |
 |---|---|
 | `GET /api/me` | usuário, workspace, papel e fuso |
+| `GET /api/members` | membros do workspace |
 | `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/:id` | projetos (`?status=&q=`) |
 | `GET/POST /api/tasks`, `GET/PATCH/DELETE /api/tasks/:id` | tarefas (`?status=&priority=&projectId=&assigneeId=&dueFrom=&dueTo=&q=`) |
 | `GET/POST /api/ideas`, `GET/PATCH/DELETE /api/ideas/:id` | ideias com etiquetas (`?status=&category=&q=`) |
@@ -37,6 +46,9 @@ Datas: aceita ISO com offset (`2026-10-01T09:00:00-03:00`) ou hora local (`2026-
 
 Excluir exige papel owner ou admin. Cada gravação e sua linha em `audit_log` (com valores anteriores e novos) vão num mesmo `batch` atômico do D1.
 
-## Integração com o protótipo
+## Publicar
 
-O código não depende das telas. Para juntar com o repositório do protótipo: copiar `src/db`, `src/auth`, `src/api`, `src/lib` e `migrations`, montar `app` (Hono) nas rotas de servidor do Vinext, ou manter este Worker na frente, e trocar as chamadas a `/api/records` nas telas pelas rotas acima. O modelo antigo `records` fica sem uso.
+1. `wrangler d1 create central-organizacao` e copie o `database_id` para o `wrangler.jsonc`.
+2. Ajuste `APP_URL` e `ALLOWED_EMAILS` em `vars`.
+3. `wrangler secret put GOOGLE_CLIENT_ID` e `wrangler secret put GOOGLE_CLIENT_SECRET`.
+4. `npm run deploy` (build, migrations remotas e deploy).

@@ -14,6 +14,8 @@ export default defineConfig(async () => {
             ALLOWED_EMAILS: "dono@exemplo.com,membro@exemplo.com",
             GOOGLE_CLIENT_ID: "client-test",
             GOOGLE_CLIENT_SECRET: "secret-test",
+            // Os testes não podem herdar o .dev.vars local.
+            DEV_LOGIN: "false",
           },
         },
       }),

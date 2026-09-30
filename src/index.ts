@@ -6,7 +6,7 @@ import { requireMember, type AppEnv } from "./api/context";
 import { ValidationError } from "./api/helpers";
 import { api } from "./api/routes";
 import { AuthError, finishLogin, startLogin, type LoginTransaction } from "./auth/google";
-import { AccessDenied, createSession, deleteSession, SESSION_COOKIE, SESSION_TTL_MS, upsertUser } from "./auth/session";
+import { AccessDenied, allowedEmails, createSession, deleteSession, SESSION_COOKIE, SESSION_TTL_MS, upsertUser } from "./auth/session";
 import { getDb } from "./db/client";
 import { users } from "./db/schema";
 
@@ -43,7 +43,7 @@ app.get("/auth/callback", async (c) => {
   try {
     tx = raw ? (JSON.parse(atob(raw)) as LoginTransaction) : null;
   } catch {}
-  if (!tx || !code || c.req.query("state") !== tx.state) return c.text("Login expirado. Tente de novo.", 400);
+  if (!tx || !code || c.req.query("state") !== tx.state) return c.redirect("/?erro=expirado");
 
   try {
     const identity = await finishLogin({
@@ -65,8 +65,25 @@ app.get("/auth/callback", async (c) => {
     });
     return c.redirect("/");
   } catch (err) {
-    if (err instanceof AccessDenied) return c.text("Esta conta não tem acesso à Central de Organização.", 403);
-    if (err instanceof AuthError) return c.text("Não foi possível confirmar o login com o Google.", 400);
+    if (err instanceof AccessDenied) return c.redirect("/?erro=acesso");
+    if (err instanceof AuthError) return c.redirect("/?erro=login");
+    throw err;
+  }
+});
+
+// Login sem Google para desenvolvimento local. Exige DEV_LOGIN=true e acesso por localhost.
+app.get("/auth/dev-login", async (c) => {
+  const host = new URL(c.req.url).hostname;
+  if (c.env.DEV_LOGIN !== "true" || !["localhost", "127.0.0.1"].includes(host)) return c.notFound();
+  const email = (c.req.query("email") ?? allowedEmails(c.env.ALLOWED_EMAILS)[0] ?? "").toLowerCase();
+  const db = getDb(c.env.DB);
+  try {
+    const user = await upsertUser(db, { sub: `dev:${email}`, email, name: email.split("@")[0] }, c.env.ALLOWED_EMAILS);
+    const token = await createSession(db, user.id);
+    setCookie(c, SESSION_COOKIE, token, { httpOnly: true, sameSite: "Lax", path: "/", maxAge: SESSION_TTL_MS / 1000 });
+    return c.redirect("/");
+  } catch (err) {
+    if (err instanceof AccessDenied) return c.text("E-mail fora de ALLOWED_EMAILS.", 403);
     throw err;
   }
 });

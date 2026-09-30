@@ -6,4 +6,7 @@ export interface Env {
   ALLOWED_EMAILS: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
+  /** "true" libera /auth/dev-login em localhost, para desenvolver sem Google. Nunca em produção. */
+  DEV_LOGIN?: string;
+  ASSETS?: Fetcher;
 }
