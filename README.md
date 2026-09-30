@@ -1,6 +1,6 @@
 # tiago — Central de Organização (backend, etapa 2)
 
-Backend normalizado da Central de Organização: login Google, workspaces e API de tarefas, projetos, ideias e compromissos. Roda em Cloudflare Workers com D1 e Drizzle, a mesma stack do protótipo. A especificação está em `PROJETO.md` e o plano desta etapa em `plano/etapa-2-banco-e-login.md`.
+Backend normalizado da Central de Organização: login Google, workspaces e API de tarefas, projetos, ideias e compromissos. Roda em Cloudflare Workers com D1 e Drizzle, a mesma stack do protótipo. A especificação está em [docs/PROJETO.md](docs/PROJETO.md) e o plano desta etapa em [docs/etapa-2-banco-e-login.md](docs/etapa-2-banco-e-login.md).
 
 ## Rodar
 
