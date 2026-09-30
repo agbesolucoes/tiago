@@ -101,7 +101,11 @@ app.get("/auth/callback", async (c) => {
     return c.redirect("/");
   } catch (err) {
     if (err instanceof AccessDenied) return c.redirect("/?erro=acesso");
-    if (err instanceof AuthError) return c.redirect("/?erro=login");
+    if (err instanceof AuthError) {
+      // O motivo vai para o log do servidor (ex.: "token endpoint 401" = chave secreta do Google errada).
+      log("warn", "auth.login_failed", { reason: err.message });
+      return c.redirect("/?erro=login");
+    }
     throw err;
   }
 });
