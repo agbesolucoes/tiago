@@ -255,6 +255,8 @@ app.post("/integrations/telegram/webhook", async (c) => {
 
 const DAILY_SUMMARY_CRON = "0 11 * * *";
 const BACKUP_CRON = "0 6 * * *";
+/** Os mesmos de `triggers.crons` no wrangler.jsonc; o servidor Node usa esta lista. */
+export const CRONS = ["*/5 * * * *", BACKUP_CRON, DAILY_SUMMARY_CRON];
 
 export default {
   fetch: app.fetch,
