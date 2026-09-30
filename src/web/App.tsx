@@ -9,6 +9,7 @@ import { IdeasPage } from "./pages/Ideas";
 import { LoginPage } from "./pages/Login";
 import { ProjectsPage } from "./pages/Projects";
 import { SearchPage } from "./pages/Search";
+import { SettingsPage } from "./pages/Settings";
 import { TasksPage } from "./pages/Tasks";
 import { AppProvider, useApp } from "./state";
 import { roleLabel, type Me } from "./types";
@@ -52,6 +53,7 @@ export function App() {
             <Route path="ideias" element={<IdeasPage />} />
             <Route path="agenda" element={<AgendaPage />} />
             <Route path="busca" element={<SearchPage />} />
+            <Route path="configuracoes" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
@@ -93,6 +95,9 @@ function Layout() {
             </NavLink>
           ))}
         </nav>
+        <NavLink to="/configuracoes" className="side-settings">
+          <Icon name="settings" /> Configurações
+        </NavLink>
         <div className="side-foot">
           <div className="who">
             <span className="who-name">{me.user.name ?? me.user.email}</span>
@@ -117,7 +122,10 @@ function Layout() {
             <Icon name="search" size={16} />
             <input type="search" placeholder="Buscar tarefas, projetos, ideias…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar" />
           </form>
-          <button type="button" className="icon-btn topbar-logout" onClick={logout} aria-label="Sair">
+          <NavLink to="/configuracoes" className="icon-btn topbar-mobile" aria-label="Configurações">
+            <Icon name="settings" />
+          </NavLink>
+          <button type="button" className="icon-btn topbar-mobile" onClick={logout} aria-label="Sair">
             <Icon name="logout" />
           </button>
         </header>

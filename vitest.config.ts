@@ -16,6 +16,9 @@ export default defineConfig(async () => {
             GOOGLE_CLIENT_SECRET: "secret-test",
             // Os testes não podem herdar o .dev.vars local.
             DEV_LOGIN: "false",
+            // Nos testes a fila é processada explicitamente.
+            PUSH_ON_WRITE: "false",
+            TOKEN_ENCRYPTION_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
           },
         },
       }),

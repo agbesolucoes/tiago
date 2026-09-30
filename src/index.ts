@@ -1,14 +1,19 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
-import { requireMember, type AppEnv } from "./api/context";
+import { requireMember, requireRole, type AppEnv } from "./api/context";
+import { integrations } from "./api/integrations";
 import { ValidationError } from "./api/helpers";
 import { api } from "./api/routes";
-import { AuthError, finishLogin, startLogin, type LoginTransaction } from "./auth/google";
+import { AuthError, CALENDAR_REDIRECT_PATH, CALENDAR_SCOPES, exchangeCode, finishLogin, startAuthorization, startLogin, type LoginTransaction } from "./auth/google";
 import { AccessDenied, allowedEmails, createSession, deleteSession, SESSION_COOKIE, SESSION_TTL_MS, upsertUser } from "./auth/session";
 import { getDb } from "./db/client";
-import { users } from "./db/schema";
+import { auditLog, integrationAccounts, users } from "./db/schema";
+import type { Env } from "./env";
+import { refreshCalendarList, syncAll, syncWorkspace } from "./integrations/calendar-sync";
+import { newId } from "./lib/crypto";
+import { encryptSecret } from "./lib/secret";
 
 const TX_COOKIE = "oauth_tx";
 
@@ -106,6 +111,102 @@ app.get("/api/me", requireMember, async (c) => {
   });
 });
 
+app.route("/api/integrations", integrations);
 app.route("/api", api);
 
-export default app;
+// ---------- Conexão com o Google Agenda ----------
+
+const CAL_TX_COOKIE = "google_tx";
+
+app.get("/integrations/google/connect", requireMember, async (c) => {
+  const ctx = c.get("ctx");
+  requireRole(ctx, "owner", "admin");
+  const user = await ctx.db.query.users.findFirst({ where: eq(users.id, ctx.userId) });
+  const { url, tx } = await startAuthorization({
+    clientId: c.env.GOOGLE_CLIENT_ID,
+    appUrl: c.env.APP_URL,
+    redirectPath: CALENDAR_REDIRECT_PATH,
+    scopes: CALENDAR_SCOPES,
+    offline: true,
+    loginHint: user?.email,
+  });
+  setCookie(c, CAL_TX_COOKIE, btoa(JSON.stringify(tx)), { httpOnly: true, secure: true, sameSite: "Lax", path: "/integrations/google", maxAge: 600 });
+  return c.redirect(url);
+});
+
+app.get("/integrations/google/callback", requireMember, async (c) => {
+  const ctx = c.get("ctx");
+  requireRole(ctx, "owner", "admin");
+  const raw = getCookie(c, CAL_TX_COOKIE);
+  deleteCookie(c, CAL_TX_COOKIE, { path: "/integrations/google" });
+  const back = (q: string) => c.redirect(`/configuracoes?google=${q}`);
+  if (c.req.query("error")) return back("cancelado");
+  let tx: LoginTransaction | null = null;
+  try {
+    tx = raw ? (JSON.parse(atob(raw)) as LoginTransaction) : null;
+  } catch {}
+  const code = c.req.query("code");
+  if (!tx || !code || c.req.query("state") !== tx.state) return back("expirado");
+
+  let result;
+  try {
+    result = await exchangeCode({
+      code,
+      tx,
+      clientId: c.env.GOOGLE_CLIENT_ID,
+      clientSecret: c.env.GOOGLE_CLIENT_SECRET,
+      appUrl: c.env.APP_URL,
+      redirectPath: CALENDAR_REDIRECT_PATH,
+    });
+  } catch {
+    return back("erro");
+  }
+  // A pessoa pode desmarcar permissões na tela do Google: sem as duas, não há como sincronizar.
+  if (!CALENDAR_SCOPES.every((s) => result.tokens.scopes.includes(s))) return back("escopos");
+  if (!result.tokens.refreshToken) return back("erro");
+
+  const key = c.env.TOKEN_ENCRYPTION_KEY;
+  const values = {
+    userId: ctx.userId,
+    externalSub: result.identity.sub,
+    email: result.identity.email,
+    scopes: result.tokens.scopes.join(" "),
+    refreshTokenEnc: await encryptSecret(result.tokens.refreshToken, key),
+    accessTokenEnc: await encryptSecret(result.tokens.accessToken, key),
+    accessTokenExpiresAt: result.tokens.expiresAt,
+    status: "active" as const,
+    lastError: null,
+    updatedAt: Date.now(),
+  };
+  const existing = await ctx.db.query.integrationAccounts.findFirst({
+    where: and(eq(integrationAccounts.workspaceId, ctx.workspaceId), eq(integrationAccounts.provider, "google")),
+  });
+  // Outra conta Google no lugar da anterior: as agendas antigas não valem mais.
+  if (existing && existing.externalSub !== result.identity.sub) {
+    await ctx.db.delete(integrationAccounts).where(eq(integrationAccounts.id, existing.id));
+  }
+  const keep = existing && existing.externalSub === result.identity.sub;
+  const id = keep ? existing.id : newId();
+  if (keep) await ctx.db.update(integrationAccounts).set(values).where(eq(integrationAccounts.id, id));
+  else await ctx.db.insert(integrationAccounts).values({ id, workspaceId: ctx.workspaceId, provider: "google", ...values });
+  await ctx.db.insert(auditLog).values({ id: newId(), workspaceId: ctx.workspaceId, userId: ctx.userId, entity: "integration", entityId: id, action: keep ? "update" : "create", after: { email: values.email, scopes: values.scopes } });
+
+  const account = (await ctx.db.query.integrationAccounts.findFirst({ where: eq(integrationAccounts.id, id) }))!;
+  const deps = { db: ctx.db, env: c.env };
+  try {
+    await refreshCalendarList(deps, account);
+    c.executionCtx.waitUntil(syncWorkspace(deps, ctx.workspaceId).catch((e) => console.error("sync inicial", e)));
+  } catch (e) {
+    console.error("agendas", e);
+  }
+  return back("conectado");
+});
+
+export default {
+  fetch: app.fetch,
+  // Cron: envia a fila e traz as mudanças do Google a cada 5 minutos.
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    const db = getDb(env.DB);
+    ctx.waitUntil(syncAll({ db, env }));
+  },
+} satisfies ExportedHandler<Env>;

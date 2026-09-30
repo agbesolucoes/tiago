@@ -3,5 +3,7 @@ APP_URL=http://localhost:5173
 ALLOWED_EMAILS=tdeottis@gmail.com
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+# openssl rand -base64 32
+TOKEN_ENCRYPTION_KEY=
 # Login sem Google, só em localhost: abra /auth/dev-login
 DEV_LOGIN=true

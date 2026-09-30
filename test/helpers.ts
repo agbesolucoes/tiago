@@ -29,6 +29,7 @@ export async function makeUser(opts: { workspaceId?: string; role?: Role } = {})
 export function call(user: TestUser | null, method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
   return SELF.fetch(`https://app.test${path}`, {
     method,
+    redirect: "manual",
     headers: {
       ...(user && { cookie: user.cookie }),
       ...(body !== undefined && { "content-type": "application/json" }),
