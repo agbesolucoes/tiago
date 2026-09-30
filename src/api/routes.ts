@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, inArray, lt, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, gte, inArray, lt, ne, or, sql, type SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Hono, type Context } from "hono";
 import { enqueueStatements, processJobs } from "../integrations/calendar-sync";
@@ -22,11 +22,13 @@ import {
 } from "./helpers";
 import { deleteEventStatements } from "./event-delete";
 import { registerNotes } from "./notes";
+import { registerTaskDetails } from "./task-details";
 import * as s from "./schemas";
 
 export const api = new Hono<AppEnv>();
 api.use("*", requireMember);
 registerNotes(api);
+registerTaskDetails(api);
 
 const LIST_LIMIT = 500;
 
@@ -112,7 +114,12 @@ api.get("/tasks", async (c) => {
   const from = toUtc(ctx, q.dueFrom, "dueFrom");
   const to = toUtc(ctx, q.dueTo, "dueTo");
   const rows = await ctx.db
-    .select()
+    .select({
+      ...getTableColumns(tasks),
+      checklistTotal: sql<number>`(SELECT count(*) FROM task_items WHERE task_items.task_id = "tasks"."id")`,
+      checklistDone: sql<number>`(SELECT count(*) FROM task_items WHERE task_items.task_id = "tasks"."id" AND task_items.done = 1)`,
+      commentCount: sql<number>`(SELECT count(*) FROM task_comments WHERE task_comments.task_id = "tasks"."id")`,
+    })
     .from(tasks)
     .where(
       and(

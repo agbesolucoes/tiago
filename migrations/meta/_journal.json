@@ -43,6 +43,13 @@
       "when": 1790776562192,
       "tag": "0005_recorrencias",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790777259904,
+      "tag": "0006_tarefas_detalhe",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,24 @@ import { taskStatusLabel, type Task, type TaskStatus } from "../types";
 import { Icon } from "./Icon";
 import { PriorityBadge } from "./ui";
 
+/** "2/5" da checklist e número de comentários, quando houver. */
+function Counts({ task }: { task: Task }) {
+  return (
+    <>
+      {!!task.checklistTotal && (
+        <span className={`meta-item${task.checklistDone === task.checklistTotal ? " all-done" : ""}`} title="Checklist">
+          <Icon name="checklist" size={13} /> {task.checklistDone}/{task.checklistTotal}
+        </span>
+      )}
+      {!!task.commentCount && (
+        <span className="meta-item" title="Comentários">
+          <Icon name="comment" size={13} /> {task.commentCount}
+        </span>
+      )}
+    </>
+  );
+}
+
 export function TaskRow({ task, onOpen, onStatus }: { task: Task; onOpen: () => void; onStatus: (s: TaskStatus) => void }) {
   const { projectName, memberName } = useApp();
   const done = task.status === "done";
@@ -31,6 +49,7 @@ export function TaskRow({ task, onOpen, onStatus }: { task: Task; onOpen: () => 
               <Icon name="user" size={13} /> {memberName(task.assigneeId)}
             </span>
           )}
+          <Counts task={task} />
           {task.status !== "todo" && !done && <span className={`status-dot st-${task.status}`}>{taskStatusLabel[task.status]}</span>}
         </span>
       </button>
@@ -58,6 +77,7 @@ export function KanbanCard({ task, onOpen, onStatus }: { task: Task; onOpen: () 
         <PriorityBadge priority={task.priority} />
         {task.dueAt && <span className={overdue ? "due overdue" : "due"}>{formatDue(task.dueAt)}</span>}
         {task.projectId && <span className="chip">{projectName(task.projectId)}</span>}
+        <Counts task={task} />
       </div>
       {/* No celular não há arrastar: o seletor move o cartão. */}
       <select className="kanban-move" value={task.status} onChange={(e) => onStatus(e.target.value as TaskStatus)} aria-label={`Mover ${task.title}`}>
