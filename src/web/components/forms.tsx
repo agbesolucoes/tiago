@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError } from "../api";
 import { useApp } from "../state";
 import { addDays, formatDay, localDate, localTime, today } from "../time";
@@ -20,6 +20,7 @@ import {
   type TaskStatus,
 } from "../types";
 import { Attachments } from "./Attachments";
+import { TaskDetails } from "./TaskDetails";
 import { MeetingNotes } from "./MeetingNotes";
 import { ErrorNote, Field, Modal } from "./ui";
 
@@ -97,6 +98,12 @@ export function TaskForm({ task, defaults, onClose, onSaved }: { task?: Task; de
   const [dueDate, setDueDate] = useState(init.dueAt ? localDate(init.dueAt) : "");
   const [dueTime, setDueTime] = useState(init.dueAt && localTime(init.dueAt) !== "00:00" ? localTime(init.dueAt) : "");
   const f = useSubmit();
+  // Checklist e comentários gravam na hora; ao fechar, a lista recarrega para mostrar o progresso.
+  const detailsChanged = useRef(false);
+  const close = () => {
+    if (detailsChanged.current && task) onSaved(task);
+    onClose();
+  };
   const onDelete = useConfirmDelete(task && canDelete ? `/api/tasks/${task.id}` : null, "tarefa", () => {
     onSaved(null);
     onClose();
@@ -122,7 +129,7 @@ export function TaskForm({ task, defaults, onClose, onSaved }: { task?: Task; de
   };
 
   return (
-    <Modal title={task ? "Editar tarefa" : "Nova tarefa"} onClose={onClose} footer={<Footer saving={f.saving} onClose={onClose} onDelete={onDelete} />}>
+    <Modal title={task ? "Editar tarefa" : "Nova tarefa"} onClose={close} footer={<Footer saving={f.saving} onClose={close} onDelete={onDelete} />}>
       <form id="entity-form" onSubmit={submit} className="form">
         <ErrorNote message={f.error} />
         <Field label="Título" error={f.issues.title}>
@@ -171,6 +178,8 @@ export function TaskForm({ task, defaults, onClose, onSaved }: { task?: Task; de
         </div>
         {task?.sourceIdeaId && <p className="muted small">Criada a partir de uma ideia.</p>}
         {task?.sourceEventId && <p className="muted small">Criada a partir de uma decisão de reunião.</p>}
+        {!task && <p className="muted small">Checklist e comentários ficam disponíveis depois de criar a tarefa.</p>}
+        {task && <TaskDetails taskId={task.id} onChanged={() => (detailsChanged.current = true)} />}
         {task && <Attachments kind="task" parentId={task.id} />}
       </form>
     </Modal>

@@ -153,6 +153,42 @@ export const tasks = sqliteTable(
   ],
 );
 
+/** Itens de checklist de uma tarefa, em ordem de `position`. */
+export const taskItems = sqliteTable(
+  "task_items",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskId: text()
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    text: text().notNull(),
+    done: integer({ mode: "boolean" }).notNull().default(false),
+    position: integer().notNull(),
+    ...timestamps,
+  },
+  (t) => [index("task_items_task_idx").on(t.taskId, t.position)],
+);
+
+export const taskComments = sqliteTable(
+  "task_comments",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskId: text()
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    userId: text().references(() => users.id, { onDelete: "set null" }),
+    body: text().notNull(),
+    ...timestamps,
+  },
+  (t) => [index("task_comments_task_idx").on(t.taskId, t.createdAt)],
+);
+
 export const ideas = sqliteTable(
   "ideas",
   {

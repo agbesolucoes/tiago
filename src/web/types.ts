@@ -38,6 +38,10 @@ export interface Task extends Base {
   dueAt: string | null;
   sourceEventId: string | null;
   sourceIdeaId: string | null;
+  /** Vêm só na listagem de tarefas. */
+  checklistTotal?: number;
+  checklistDone?: number;
+  commentCount?: number;
 }
 
 export interface Idea extends Base {

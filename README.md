@@ -38,6 +38,9 @@ Todas as rotas exigem sessão. O workspace é o do usuário, ou o informado em `
 | `POST /api/integrations/google/sync` | envia a fila e importa agora |
 | `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/:id` | projetos (`?status=&q=`) |
 | `GET/POST /api/tasks`, `GET/PATCH/DELETE /api/tasks/:id` | tarefas (`?status=&priority=&projectId=&assigneeId=&dueFrom=&dueTo=&q=`) |
+| `GET/POST /api/tasks/:id/checklist`, `PATCH/DELETE /api/tasks/:id/checklist/:itemId`, `PUT /api/tasks/:id/checklist/order` | checklist da tarefa (até 200 itens); a listagem de tarefas traz `checklistTotal`, `checklistDone` e `commentCount` |
+| `GET/POST /api/tasks/:id/comments`, `PATCH/DELETE /api/tasks/:id/comments/:commentId` | comentários; só quem escreveu edita; quem escreveu, o dono ou um administrador apaga |
+| `GET /api/tasks/:id/history` | histórico da tarefa, da checklist e dos comentários, do mais novo para o mais antigo (vem do `audit_log`) |
 | `GET/POST /api/ideas`, `GET/PATCH/DELETE /api/ideas/:id` | ideias com etiquetas (`?status=&category=&q=`) |
 | `POST /api/ideas/:id/convert` | `{ "to": "task" \| "project" }` cria o registro com `sourceIdeaId` e marca a ideia como convertida |
 | `GET/POST /api/events`, `GET/PATCH/DELETE /api/events/:id` | compromissos (`?from=&to=&q=`, até 2 anos por consulta); séries voltam expandidas, uma linha por ocorrência; criar ou editar devolve `conflicts` |
