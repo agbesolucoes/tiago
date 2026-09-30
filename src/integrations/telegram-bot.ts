@@ -19,6 +19,7 @@ import {
 } from "../db/schema";
 import type { Env } from "../env";
 import { newId, sha256 } from "../lib/crypto";
+import { recordError } from "../lib/log";
 import { addMinutes, parseWhen } from "../lib/nl-date";
 import { localDayRange, parseDateTime } from "../lib/time";
 import { enqueueStatements, processJobs } from "./calendar-sync";
@@ -114,7 +115,7 @@ async function say(deps: BotDeps, chatId: number | string, text: string, buttons
   try {
     await client(deps.env).sendMessage(chatId, text, buttons);
   } catch (e) {
-    console.error("telegram send", e);
+    await recordError(deps.db, "telegram envio", e);
   }
 }
 

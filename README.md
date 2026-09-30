@@ -80,9 +80,19 @@ Cada pessoa liga o próprio Telegram em **Configurações → Telegram**: a Cent
 
 Passo a passo do bot em [docs/configurar-telegram.md](docs/configurar-telegram.md).
 
+## Monitoramento e backups
+
+- **Logs:** cada requisição gera uma linha JSON com `requestId` (também no cabeçalho `x-request-id`), método, rota, status e duração; `observability` está ligado no `wrangler.jsonc`. Erros 500, falhas do sync, do backup e de envio no Telegram vão também para `app_errors` (30 dias).
+- **`GET /api/health`:** público e sem dados, para monitor externo; 503 se o banco não responde.
+- **Backup:** cron `0 6 * * *` (3h em Brasília) exporta todas as tabelas (menos sessões e dados de vida curta), compacta com gzip, cifra com AES-256-GCM (`BACKUP_ENCRYPTION_KEY`) e grava no R2 (`BACKUPS`). Em seguida lê de volta e confere as contagens antes de marcar como ok. Retenção de 30 dias, mínimo de 7 arquivos.
+- **`/api/ops/*`:** status, backup manual e download do arquivo, só para o dono da instalação (papel owner e primeiro e-mail de `ALLOWED_EMAILS`).
+- **Restauração:** `scripts/restaurar-backup.mjs` decifra o arquivo e gera o SQL; o teste `test/ops.test.ts` restaura um backup e compara as linhas.
+
+Passo a passo em [docs/backup-e-restauracao.md](docs/backup-e-restauracao.md).
+
 ## Publicar
 
-1. `wrangler d1 create central-organizacao` e copie o `database_id` para o `wrangler.jsonc`.
+1. `wrangler d1 create central-organizacao` e copie o `database_id` para o `wrangler.jsonc`. Crie também o bucket dos backups: `wrangler r2 bucket create central-organizacao-backups`.
 2. Ajuste `APP_URL` e `ALLOWED_EMAILS` em `vars`.
-3. `wrangler secret put` para `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `TOKEN_ENCRYPTION_KEY` (e, para o seletor do Drive, `GOOGLE_PICKER_API_KEY` e `GOOGLE_PROJECT_NUMBER`; para o bot, `TELEGRAM_BOT_TOKEN` e `TELEGRAM_WEBHOOK_SECRET`, veja [docs/configurar-telegram.md](docs/configurar-telegram.md)) (veja [docs/configurar-google-cloud.md](docs/configurar-google-cloud.md)).
+3. `wrangler secret put` para `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `TOKEN_ENCRYPTION_KEY` (e, para o seletor do Drive, `GOOGLE_PICKER_API_KEY` e `GOOGLE_PROJECT_NUMBER`; para o bot, `TELEGRAM_BOT_TOKEN` e `TELEGRAM_WEBHOOK_SECRET`, veja [docs/configurar-telegram.md](docs/configurar-telegram.md); para os backups, `BACKUP_ENCRYPTION_KEY`) (veja [docs/configurar-google-cloud.md](docs/configurar-google-cloud.md)).
 4. `npm run deploy` (build, migrations remotas e deploy).

@@ -425,3 +425,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .link-code p { margin: 0; }
 .link-code-value { align-self: flex-start; font-size: 1.25rem; font-weight: 700; letter-spacing: 0.06em; padding: 0.5rem 0.85rem; border-radius: 10px; background: var(--surface-2, var(--accent-soft)); border: 1px solid var(--border); overflow-wrap: anywhere; }
 .telegram-admin { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 0.75rem; }
+
+/* ---------- Saúde do sistema ---------- */
+.ops-note { margin: 0 0 0.4rem; }
+.ops-list { list-style: none; margin: 0 0 0.5rem; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.ops-list li { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-size: 0.92rem; }
+.ops-list li > span:first-child { min-width: 7.5rem; font-weight: 550; }
+.ops-detail { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }

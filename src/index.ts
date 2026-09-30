@@ -5,6 +5,7 @@ import { HTTPException } from "hono/http-exception";
 import { requireMember, requireRole, type AppEnv } from "./api/context";
 import { attachmentsApi } from "./api/attachments";
 import { integrations } from "./api/integrations";
+import { ops } from "./api/ops";
 import { ValidationError } from "./api/helpers";
 import { api } from "./api/routes";
 import { AuthError, CALENDAR_REDIRECT_PATH, CALENDAR_SCOPES, DRIVE_SCOPE, exchangeCode, finishLogin, startAuthorization, startLogin, type LoginTransaction } from "./auth/google";
@@ -16,17 +17,42 @@ import { refreshCalendarList, syncAll, syncWorkspace } from "./integrations/cale
 import { handleUpdate, sendDailySummaries, telegramEnabled } from "./integrations/telegram-bot";
 import type { TgUpdate } from "./integrations/telegram-client";
 import { newId } from "./lib/crypto";
+import { log, recordError } from "./lib/log";
 import { encryptSecret } from "./lib/secret";
+import { backupConfigured, pruneOps, runBackup } from "./ops/backup";
 
 const TX_COOKIE = "oauth_tx";
 
 const app = new Hono<AppEnv>();
 
-app.onError((err, c) => {
+// Cada requisição ganha um id (volta no cabeçalho x-request-id e aparece nos logs e erros).
+app.use("*", async (c, next) => {
+  const requestId = c.req.header("cf-ray") ?? crypto.randomUUID();
+  c.set("requestId", requestId);
+  const started = Date.now();
+  await next();
+  c.header("x-request-id", requestId);
+  const status = c.res.status;
+  log(status >= 500 ? "error" : "info", "request", { requestId, method: c.req.method, path: c.req.path, status, ms: Date.now() - started });
+});
+
+app.onError(async (err, c) => {
   if (err instanceof ValidationError) return c.json({ error: err.message, issues: err.issues }, 400);
   if (err instanceof HTTPException) return c.json({ error: err.message }, err.status);
-  console.error(err);
-  return c.json({ error: "erro interno" }, 500);
+  const requestId = c.get("requestId");
+  await recordError(getDb(c.env.DB), `http ${c.req.method} ${c.req.routePath}`, err, requestId);
+  return c.json({ error: "erro interno", requestId }, 500);
+});
+
+/** Verificação pública para monitor externo (UptimeRobot etc.): sem dados, só se o Worker e o banco respondem. */
+app.get("/api/health", async (c) => {
+  try {
+    await c.env.DB.prepare("SELECT 1").first();
+    return c.json({ ok: true });
+  } catch (e) {
+    await recordError(getDb(c.env.DB), "health", e, c.get("requestId"));
+    return c.json({ ok: false }, 503);
+  }
 });
 
 // ---------- Login Google ----------
@@ -115,6 +141,7 @@ app.get("/api/me", requireMember, async (c) => {
 });
 
 app.route("/api/integrations", integrations);
+app.route("/api/ops", ops);
 app.route("/api/attachments", attachmentsApi);
 app.route("/api", api);
 
@@ -226,13 +253,30 @@ app.post("/integrations/telegram/webhook", async (c) => {
 });
 
 const DAILY_SUMMARY_CRON = "0 11 * * *";
+const BACKUP_CRON = "0 6 * * *";
 
 export default {
   fetch: app.fetch,
-  // Crons: a cada 5 minutos envia a fila e traz as mudanças do Google; às 8h de São Paulo (11h UTC) manda o resumo do dia.
+  // Crons: a cada 5 minutos envia a fila e traz as mudanças do Google; às 3h de São Paulo (6h UTC) faz o backup;
+  // às 8h (11h UTC) manda o resumo do dia.
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     const db = getDb(env.DB);
-    if (controller.cron === DAILY_SUMMARY_CRON) ctx.waitUntil(sendDailySummaries({ db, env }));
-    else ctx.waitUntil(syncAll({ db, env }));
+    const run = async (name: string, job: () => Promise<unknown>) => {
+      try {
+        await job();
+      } catch (e) {
+        await recordError(db, `cron ${name}`, e);
+      }
+    };
+    if (controller.cron === DAILY_SUMMARY_CRON) ctx.waitUntil(run("resumo", () => sendDailySummaries({ db, env })));
+    else if (controller.cron === BACKUP_CRON)
+      ctx.waitUntil(
+        run("backup", async () => {
+          if (backupConfigured(env)) await runBackup({ db, env }, "cron");
+          else log("warn", "backup.skipped", { reason: "não configurado" });
+          await pruneOps(db);
+        }),
+      );
+    else ctx.waitUntil(run("sync", () => syncAll({ db, env })));
   },
 } satisfies ExportedHandler<Env>;

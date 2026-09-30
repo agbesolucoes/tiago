@@ -15,7 +15,7 @@ export interface RequestContext {
   timezone: string;
 }
 
-export type AppEnv = { Bindings: Env; Variables: { ctx: RequestContext } };
+export type AppEnv = { Bindings: Env; Variables: { ctx: RequestContext; requestId: string } };
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 

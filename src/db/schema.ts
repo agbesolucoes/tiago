@@ -395,3 +395,35 @@ export const processedUpdates = sqliteTable("processed_updates", {
   updateId: integer().primaryKey(),
   processedAt: now(),
 });
+
+// ---------- Operação ----------
+
+/** Cada execução do backup: quando, onde ficou o arquivo cifrado e quantas linhas por tabela. */
+export const backupRuns = sqliteTable(
+  "backup_runs",
+  {
+    id: text().primaryKey(),
+    trigger: text({ enum: ["cron", "manual"] }).notNull(),
+    status: text({ enum: ["running", "ok", "failed"] }).notNull().default("running"),
+    objectKey: text(),
+    size: integer(),
+    tables: text({ mode: "json" }).$type<Record<string, number>>(),
+    error: text(),
+    startedAt: integer().notNull(),
+    finishedAt: integer(),
+  },
+  (t) => [index("backup_runs_started_idx").on(t.startedAt)],
+);
+
+/** Erros do servidor e das rotinas em segundo plano, para a tela "Saúde do sistema". Guardados por 30 dias. */
+export const appErrors = sqliteTable(
+  "app_errors",
+  {
+    id: text().primaryKey(),
+    source: text().notNull(),
+    message: text().notNull(),
+    requestId: text(),
+    createdAt: now(),
+  },
+  (t) => [index("app_errors_created_idx").on(t.createdAt)],
+);

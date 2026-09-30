@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router";
 import { api } from "../api";
 import { Attachments } from "../components/Attachments";
 import { Icon } from "../components/Icon";
+import { SystemHealth } from "../components/SystemHealth";
 import { TelegramSection } from "../components/TelegramSection";
 import { Badge, ErrorNote, Loading, PageHeader } from "../components/ui";
 import { useApp, useResource } from "../state";
@@ -214,6 +215,8 @@ export function SettingsPage() {
       )}
 
       <TelegramSection />
+
+      <SystemHealth />
 
       <section className="card settings-section">
         <header className="settings-head">
