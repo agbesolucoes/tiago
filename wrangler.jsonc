@@ -10,13 +10,17 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/auth/*", "/integrations/*"]
   },
-  // Sincronização com o Google Agenda a cada 5 minutos.
-  "triggers": { "crons": ["*/5 * * * *", "0 11 * * *"] },
+  // Sincronização com o Google a cada 5 minutos, backup às 3h e resumo do Telegram às 8h (horário de Brasília).
+  "triggers": { "crons": ["*/5 * * * *", "0 6 * * *", "0 11 * * *"] },
+  // Workers Logs: guarda os logs em JSON de cada requisição e rotina.
+  "observability": { "enabled": true },
   "vars": {
     "APP_URL": "https://central.example.com",
     "ALLOWED_EMAILS": "tdeottis@gmail.com"
   },
-  // GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET e TOKEN_ENCRYPTION_KEY: `wrangler secret put`, nunca no Git.
+  // GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, TOKEN_ENCRYPTION_KEY e BACKUP_ENCRYPTION_KEY: `wrangler secret put`, nunca no Git.
+  // Backups cifrados do banco. Crie antes do deploy: `wrangler r2 bucket create central-organizacao-backups`.
+  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "central-organizacao-backups" }],
   "d1_databases": [
     { "binding": "DB", "database_name": "central-organizacao", "database_id": "local", "migrations_dir": "migrations" }
   ]

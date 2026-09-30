@@ -29,6 +29,13 @@
       "when": 1790772958545,
       "tag": "0003_telegram",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790775832469,
+      "tag": "0004_operacao",
+      "breakpoints": true
     }
   ]
 }

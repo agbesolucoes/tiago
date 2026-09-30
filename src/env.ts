@@ -15,6 +15,9 @@ export interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
   TELEGRAM_BOT_USERNAME?: string;
+  /** Bucket R2 dos backups e chave (32 bytes em base64) que cifra cada arquivo. Sem os dois, o backup fica desligado. */
+  BACKUPS?: R2Bucket;
+  BACKUP_ENCRYPTION_KEY?: string;
   /** "true" libera /auth/dev-login em localhost, para desenvolver sem Google. Nunca em produção. */
   DEV_LOGIN?: string;
   /** "false" desliga o envio imediato ao Google após cada gravação (fica só o cron). */

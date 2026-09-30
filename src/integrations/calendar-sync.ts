@@ -3,6 +3,7 @@ import type { Db } from "../db/client";
 import { auditLog, calendars, events, integrationAccounts, syncJobs, workspaces } from "../db/schema";
 import type { Env } from "../env";
 import { newId } from "../lib/crypto";
+import { recordError } from "../lib/log";
 import { parseDateTime } from "../lib/time";
 import { decryptSecret, encryptSecret } from "../lib/secret";
 import { GoogleClient, GoogleError, googleFetch, refreshAccessToken, type GoogleEvent } from "./google-client";
@@ -429,7 +430,7 @@ export async function syncAll(deps: SyncDeps) {
     .from(integrationAccounts)
     .where(eq(integrationAccounts.status, "active"));
   for (const a of accounts) {
-    await syncWorkspace(deps, a.workspaceId).catch((e) => console.error("sync", a.workspaceId, e));
+    await syncWorkspace(deps, a.workspaceId).catch((e) => recordError(deps.db, `sync ${a.workspaceId}`, e));
   }
 }
 
