@@ -130,7 +130,8 @@ export class FakeGoogle {
       const syncToken = url.searchParams.get("syncToken");
       if (syncToken && this.expiredSyncTokens.has(syncToken)) return this.json(410, { error: { code: 410, message: "Sync token is no longer valid" } });
       const since = syncToken ? Number(syncToken.split(":")[1]) : 0;
-      const all = [...store.values()].filter((e) => e.seq > since && (syncToken || e.status !== "cancelled")).sort((a, b) => a.seq - b.seq);
+      // Como o Google: exceções canceladas de uma série vêm mesmo no sync completo.
+      const all = [...store.values()].filter((e) => e.seq > since && (syncToken || e.status !== "cancelled" || !!e.recurringEventId)).sort((a, b) => a.seq - b.seq);
       const offset = Number(url.searchParams.get("pageToken") ?? 0);
       const items = all.slice(offset, offset + this.pageSize).map(({ seq: _s, ...e }) => e);
       const more = offset + this.pageSize < all.length;

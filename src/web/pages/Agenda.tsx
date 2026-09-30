@@ -8,6 +8,9 @@ import { useApp, useResource } from "../state";
 import { addDays, formatDay, localDate, localTime, startOfWeek, today } from "../time";
 import type { CalendarEvent, Conflict } from "../types";
 
+/** Ocorrências da mesma série têm o mesmo id; a chave inclui o início. */
+const keyOf = (e: CalendarEvent) => `${e.id}:${e.occurrenceStart ?? e.startAt}`;
+
 export function AgendaPage() {
   const { projectName } = useApp();
   const [params, setParams] = useSearchParams();
@@ -23,7 +26,7 @@ export function AgendaPage() {
     const list = events ?? [];
     for (const a of list)
       for (const b of list)
-        if (a.id !== b.id && new Date(a.startAt) < new Date(b.endAt) && new Date(b.startAt) < new Date(a.endAt)) ids.add(a.id);
+        if (keyOf(a) !== keyOf(b) && new Date(a.startAt) < new Date(b.endAt) && new Date(b.startAt) < new Date(a.endAt)) ids.add(keyOf(a));
     return ids;
   }, [events]);
 
@@ -83,16 +86,20 @@ export function AgendaPage() {
                 ) : (
                   <ul className="day-events">
                     {dayEvents.map((e) => (
-                      <li key={e.id}>
-                        <button type="button" className={`event${conflicting.has(e.id) ? " has-conflict" : ""}`} onClick={() => setEditing({ event: e })}>
+                      <li key={keyOf(e)}>
+                        <button type="button" className={`event${conflicting.has(keyOf(e)) ? " has-conflict" : ""}`} onClick={() => setEditing({ event: e })}>
                           <span className="event-time">
                             {localDate(e.startAt) === d ? localTime(e.startAt) : "…"}–{localDate(e.endAt) === d ? localTime(e.endAt) : "…"}
                           </span>
-                          <span className="event-title">{e.title}</span>
+                          <span className="event-title">
+                            {e.title}
+                            {e.recurring && <span className="event-icon" title="Repete"><Icon name="repeat" size={12} /></span>}
+                            {e.reminderMinutes != null && <span className="event-icon" title="Com lembrete"><Icon name="bell" size={12} /></span>}
+                          </span>
                           {e.projectId && <span className="event-project">{projectName(e.projectId)}</span>}
                           {e.syncStatus === "pending" && <span className="event-sync">Enviando ao Google…</span>}
                           {e.syncStatus === "error" && <span className="event-sync error">Erro ao enviar ao Google</span>}
-                          {conflicting.has(e.id) && (
+                          {conflicting.has(keyOf(e)) && (
                             <span className="event-conflict">
                               <Icon name="alert" size={12} /> Conflito
                             </span>

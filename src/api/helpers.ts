@@ -76,7 +76,7 @@ export function auditInsert(
   });
 }
 
-const DATE_KEYS = new Set(["createdAt", "updatedAt", "dueAt", "startAt", "endAt"]);
+const DATE_KEYS = new Set(["createdAt", "updatedAt", "dueAt", "startAt", "endAt", "originalStartAt", "recurrenceEndsAt", "occurrenceStart"]);
 
 /** Converte datas numéricas para ISO UTC na resposta. */
 export function serialize<T extends Record<string, unknown>>(row: T) {

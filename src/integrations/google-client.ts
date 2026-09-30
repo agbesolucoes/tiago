@@ -34,6 +34,11 @@ export interface GoogleEvent {
   end?: { dateTime?: string; date?: string; timeZone?: string };
   updated?: string;
   etag?: string;
+  /** Série: linhas RRULE/EXDATE. Exceção: id da série e início original da ocorrência. */
+  recurrence?: string[];
+  recurringEventId?: string;
+  originalStartTime?: { dateTime?: string; date?: string; timeZone?: string };
+  reminders?: { useDefault?: boolean; overrides?: { method: string; minutes: number }[] };
 }
 
 export interface CalendarListEntry {
@@ -88,7 +93,8 @@ export class GoogleClient {
 
   /** Uma página de eventos. Sem syncToken usa timeMin (sync inicial). */
   listEvents(calendarId: string, opts: { syncToken?: string | null; timeMin?: string; pageToken?: string }) {
-    const q = new URLSearchParams({ maxResults: "250", singleEvents: "true", showDeleted: "true" });
+    // singleEvents=false: séries chegam como um mestre com RRULE, e as exceções vêm separadas.
+    const q = new URLSearchParams({ maxResults: "250", singleEvents: "false", showDeleted: "true" });
     if (opts.pageToken) q.set("pageToken", opts.pageToken);
     if (opts.syncToken) q.set("syncToken", opts.syncToken);
     else if (opts.timeMin) q.set("timeMin", opts.timeMin);

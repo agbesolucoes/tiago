@@ -105,7 +105,7 @@ export function DashboardPage() {
                 ) : (
                   <ul className="agenda-mini">
                     {d.eventsToday.map((e) => (
-                      <li key={e.id}>
+                      <li key={`${e.id}:${e.startAt}`}>
                         <span className="event-time">{localTime(e.startAt)}</span>
                         <span>{e.title}</span>
                       </li>

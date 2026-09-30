@@ -40,7 +40,9 @@ Todas as rotas exigem sessão. O workspace é o do usuário, ou o informado em `
 | `GET/POST /api/tasks`, `GET/PATCH/DELETE /api/tasks/:id` | tarefas (`?status=&priority=&projectId=&assigneeId=&dueFrom=&dueTo=&q=`) |
 | `GET/POST /api/ideas`, `GET/PATCH/DELETE /api/ideas/:id` | ideias com etiquetas (`?status=&category=&q=`) |
 | `POST /api/ideas/:id/convert` | `{ "to": "task" \| "project" }` cria o registro com `sourceIdeaId` e marca a ideia como convertida |
-| `GET/POST /api/events`, `GET/PATCH/DELETE /api/events/:id` | compromissos (`?from=&to=&q=`); criar ou editar devolve `conflicts` |
+| `GET/POST /api/events`, `GET/PATCH/DELETE /api/events/:id` | compromissos (`?from=&to=&q=`, até 2 anos por consulta); séries voltam expandidas, uma linha por ocorrência; criar ou editar devolve `conflicts` |
+| `POST /api/events/:id/occurrences/skip` | tira um dia da série (`{ "occurrenceStart" }`) |
+| `POST /api/events/:id/occurrences/detach` | altera só um dia da série; vira um compromisso próprio ligado a ela |
 | `GET /api/dashboard` | contagens do painel e compromissos de hoje |
 | `GET /api/search?q=` | busca em tudo |
 
@@ -59,6 +61,13 @@ Em **Configurações**, o dono ou um administrador conecta a conta Google (autor
 - Desconectar revoga o token no Google, apaga a conta e a fila; os compromissos continuam na Central.
 
 O passo a passo das credenciais está em [docs/configurar-google-cloud.md](docs/configurar-google-cloud.md).
+
+## Repetição e lembretes
+
+- **Séries:** um compromisso pode repetir todo dia, semana (com dias escolhidos), mês ou ano, a cada N, sem fim, até uma data ou por N vezes (`repeat` no POST/PATCH). A regra é gravada como RRULE e expandida no fuso do workspace, então 10h continua 10h depois da mudança de horário. Conflitos e o painel consideram cada ocorrência.
+- **Um dia só:** editar só uma ocorrência cria uma exceção (`series_id` + `original_start_at`) e acrescenta a data em `exdates` da série; excluir só uma ocorrência acrescenta a data em `exdates`. Excluir a série apaga as exceções junto.
+- **Google Agenda:** a série vai com as linhas `RRULE` e `EXDATE`; a exceção criada aqui vai como compromisso avulso. Na importação (`singleEvents=false`), séries do Google viram séries aqui, exceções do Google viram exceções e ocorrências canceladas viram `exdates`. Regras que a tela não sabe editar aparecem como "repetição personalizada" e continuam valendo.
+- **Lembretes:** `reminderMinutes` (na hora, 10 min, 30 min, 1 h, 1 dia…) vai para o Google como aviso de pop-up. No Telegram, o cron de 5 minutos manda "Lembrete: … às HH:MM" para quem ligou o Telegram e deixou os lembretes ativos. Cada ocorrência é avisada uma vez por pessoa (`reminder_log`); lembrete com mais de 1 hora de atraso é descartado.
 
 ## Google Drive e registros de reunião
 

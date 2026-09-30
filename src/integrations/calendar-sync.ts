@@ -4,6 +4,7 @@ import { auditLog, calendars, events, integrationAccounts, syncJobs, workspaces 
 import type { Env } from "../env";
 import { newId } from "../lib/crypto";
 import { recordError } from "../lib/log";
+import { fromGoogleRecurrence, seriesEnd, toGoogleRecurrence } from "../lib/recurrence";
 import { parseDateTime } from "../lib/time";
 import { decryptSecret, encryptSecret } from "../lib/secret";
 import { GoogleClient, GoogleError, googleFetch, refreshAccessToken, type GoogleEvent } from "./google-client";
@@ -133,37 +134,78 @@ async function hasPendingJob(db: Db, eventId: string) {
   return !!row;
 }
 
-async function applyRemoteEvent(deps: SyncDeps, cal: Calendar, timeZone: string, ev: GoogleEvent) {
+function remoteReminder(ev: GoogleEvent): number | null | undefined {
+  const popup = ev.reminders?.overrides?.filter((r) => r.method === "popup").map((r) => r.minutes);
+  if (popup?.length) return Math.min(...popup);
+  // Lembrete padrão do Google: mantém o que a Central tiver.
+  return undefined;
+}
+
+function originalStart(ev: GoogleEvent, timeZone: string) {
+  const o = ev.originalStartTime;
+  if (o?.dateTime) return Date.parse(o.dateTime);
+  if (o?.date) return parseDateTime(o.date, o.timeZone ?? timeZone);
+  return null;
+}
+
+/** Aplica um evento do Google. Devolve "defer" quando é exceção de uma série que ainda não chegou. */
+async function applyRemoteEvent(deps: SyncDeps, cal: Calendar, timeZone: string, ev: GoogleEvent): Promise<"ok" | "defer"> {
   const { db } = deps;
   const local = await db.query.events.findFirst({
     where: and(eq(events.workspaceId, cal.workspaceId), eq(events.calendarId, cal.googleCalendarId), eq(events.remoteId, ev.id)),
   });
   // Alteração local ainda na fila vence: ela será enviada ao Google em seguida.
-  if (local && (await hasPendingJob(db, local.id))) return;
+  if (local && (await hasPendingJob(db, local.id))) return "ok";
+
+  const master = ev.recurringEventId
+    ? await db.query.events.findFirst({
+        where: and(eq(events.workspaceId, cal.workspaceId), eq(events.calendarId, cal.googleCalendarId), eq(events.remoteId, ev.recurringEventId)),
+      })
+    : undefined;
+  const original = ev.recurringEventId ? originalStart(ev, timeZone) : null;
 
   if (ev.status === "cancelled") {
-    if (!local) return;
-    await db.batch([
-      db.delete(events).where(eq(events.id, local.id)),
-      db.insert(auditLog).values({ id: newId(), workspaceId: cal.workspaceId, entity: "event", entityId: local.id, action: "delete", before: local, after: { via: "google" } }),
-    ]);
-    return;
+    if (local) {
+      await db.batch([
+        db.delete(events).where(eq(events.id, local.id)),
+        db.insert(auditLog).values({ id: newId(), workspaceId: cal.workspaceId, entity: "event", entityId: local.id, action: "delete", before: local, after: { via: "google" } }),
+      ]);
+    }
+    if (ev.recurringEventId && original != null) {
+      // Ocorrência apagada no Google: vira data excluída da série.
+      if (!master) return "defer";
+      const exdates = master.exdates ?? [];
+      if (!exdates.includes(original) && !(await hasPendingJob(db, master.id))) {
+        await db.update(events).set({ exdates: [...exdates, original], updatedAt: Date.now() }).where(eq(events.id, master.id));
+      }
+    }
+    return "ok";
   }
 
   const times = toLocalTimes(ev, timeZone);
-  if (!times) return;
+  if (!times) return "ok";
+  const tz = ev.start?.timeZone ?? timeZone;
+  const series = ev.recurrence ? fromGoogleRecurrence(ev.recurrence, tz) : null;
+  const reminder = remoteReminder(ev);
   const values = {
     title: ev.summary?.trim() || "(sem título)",
     description: ev.description ?? null,
     ...times,
-    timezone: ev.start?.timeZone ?? timeZone,
+    timezone: tz,
+    recurrence: series?.recurrence ?? null,
+    exdates: series?.exdates.length ? series.exdates : null,
+    recurrenceEndsAt: series ? seriesEnd({ ...times, timezone: tz, recurrence: series.recurrence }) : null,
+    seriesId: master?.id ?? null,
+    originalStartAt: original,
+    ...(reminder !== undefined && { reminderMinutes: reminder }),
     syncStatus: "synced" as const,
   };
   if (local) {
-    const changed = values.title !== local.title || values.description !== local.description || values.startAt !== local.startAt || values.endAt !== local.endAt || values.allDay !== local.allDay;
+    const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    const changed = (Object.keys(values) as (keyof typeof values)[]).some((k) => k !== "syncStatus" && !same(values[k], local[k as keyof LocalEvent]));
     if (!changed) {
       if (local.syncStatus !== "synced") await db.update(events).set({ syncStatus: "synced" }).where(eq(events.id, local.id));
-      return;
+      return "ok";
     }
     await db.batch([
       db.update(events).set({ ...values, updatedAt: Date.now() }).where(eq(events.id, local.id)),
@@ -173,7 +215,7 @@ async function applyRemoteEvent(deps: SyncDeps, cal: Calendar, timeZone: string,
         entity: "event",
         entityId: local.id,
         action: "update",
-        before: { title: local.title, startAt: local.startAt, endAt: local.endAt },
+        before: { title: local.title, startAt: local.startAt, endAt: local.endAt, recurrence: local.recurrence },
         after: { ...values, via: "google" },
       }),
     ]);
@@ -182,8 +224,18 @@ async function applyRemoteEvent(deps: SyncDeps, cal: Calendar, timeZone: string,
     await db.batch([
       db.insert(events).values({ id, workspaceId: cal.workspaceId, calendarId: cal.googleCalendarId, remoteId: ev.id, ...values }),
       db.insert(auditLog).values({ id: newId(), workspaceId: cal.workspaceId, entity: "event", entityId: id, action: "create", before: null, after: { ...values, via: "google" } }),
+      // Exceções que chegaram antes da série passam a apontar para ela.
+      ...(series
+        ? [
+            db
+              .update(events)
+              .set({ seriesId: id })
+              .where(and(eq(events.workspaceId, cal.workspaceId), eq(events.calendarId, cal.googleCalendarId), sql`${events.remoteId} LIKE ${`${ev.id}\\_%`} ESCAPE '\\'`, sql`${events.seriesId} IS NULL`)),
+          ]
+        : []),
     ]);
   }
+  return "ok";
 }
 
 /** Sync de uma agenda: inicial paginado, depois incremental com syncToken; 410 reconstrói do zero. */
@@ -195,6 +247,7 @@ export async function syncCalendar(deps: SyncDeps, account: Account, cal: Calend
   let pageToken: string | undefined;
   const timeMin = new Date((deps.now?.() ?? Date.now()) - INITIAL_WINDOW_MS).toISOString();
   let applied = 0;
+  const deferred: GoogleEvent[] = [];
 
   for (;;) {
     let page;
@@ -209,8 +262,10 @@ export async function syncCalendar(deps: SyncDeps, account: Account, cal: Calend
       }
       throw e;
     }
-    for (const ev of page.items ?? []) {
-      await applyRemoteEvent(deps, cal, timeZone, ev);
+    // Séries primeiro, para as exceções da mesma página já acharem o mestre.
+    const items = [...(page.items ?? [])].sort((a, b) => Number(!!a.recurringEventId) - Number(!!b.recurringEventId));
+    for (const ev of items) {
+      if ((await applyRemoteEvent(deps, cal, timeZone, ev)) === "defer") deferred.push(ev);
       applied++;
     }
     if (page.nextPageToken) {
@@ -221,6 +276,8 @@ export async function syncCalendar(deps: SyncDeps, account: Account, cal: Calend
       .update(calendars)
       .set({ syncToken: page.nextSyncToken ?? null, updatedAt: Date.now() })
       .where(eq(calendars.id, cal.id));
+    // Exceções cuja série veio numa página posterior.
+    for (const ev of deferred) await applyRemoteEvent(deps, cal, timeZone, ev);
     return applied;
   }
 }
@@ -278,6 +335,9 @@ function toGoogle(ev: LocalEvent): GoogleEvent {
     description: ev.description ?? undefined,
     start: ev.allDay ? { date: date(ev.startAt) } : { dateTime: new Date(ev.startAt).toISOString(), timeZone: ev.timezone },
     end: ev.allDay ? { date: date(ev.endAt) } : { dateTime: new Date(ev.endAt).toISOString(), timeZone: ev.timezone },
+    // Sem regra, [] remove a repetição no Google ao editar.
+    recurrence: ev.recurrence ? toGoogleRecurrence({ ...ev, recurrence: ev.recurrence }) : [],
+    reminders: ev.reminderMinutes != null ? { useDefault: false, overrides: [{ method: "popup", minutes: ev.reminderMinutes }] } : { useDefault: true },
   };
 }
 

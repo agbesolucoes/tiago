@@ -7,7 +7,7 @@ import { TelegramClient, TelegramError } from "../integrations/telegram-client";
 import { requireRole, type AppEnv } from "./context";
 import { auditInsert, parseBody } from "./helpers";
 
-const telegramPatch = z.strictObject({ dailySummary: z.boolean() });
+const telegramPatch = z.strictObject({ dailySummary: z.boolean().optional(), reminders: z.boolean().optional() });
 
 /** Rotas do Telegram em /api/integrations/telegram. Cada pessoa liga a própria conta. */
 export function registerTelegram(api: Hono<AppEnv>) {
@@ -22,6 +22,7 @@ export function registerTelegram(api: Hono<AppEnv>) {
       linked: !!link,
       username: link?.username ?? null,
       dailySummary: link?.dailySummary ?? true,
+      reminders: link?.reminders ?? true,
     });
   });
 
@@ -39,11 +40,11 @@ export function registerTelegram(api: Hono<AppEnv>) {
     const body = await parseBody(c, telegramPatch);
     const res = await ctx.db
       .update(telegramLinks)
-      .set({ dailySummary: body.dailySummary, updatedAt: Date.now() })
+      .set({ ...body, updatedAt: Date.now() })
       .where(and(eq(telegramLinks.workspaceId, ctx.workspaceId), eq(telegramLinks.userId, ctx.userId)))
-      .returning({ id: telegramLinks.id });
+      .returning({ dailySummary: telegramLinks.dailySummary, reminders: telegramLinks.reminders });
     if (!res.length) return c.json({ error: "Telegram não vinculado" }, 404);
-    return c.json({ dailySummary: body.dailySummary });
+    return c.json(res[0]);
   });
 
   api.delete("/telegram", async (c) => {

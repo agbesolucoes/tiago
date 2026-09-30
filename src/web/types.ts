@@ -49,12 +49,33 @@ export interface Idea extends Base {
   tags: string[];
 }
 
+export type Weekday = "MO" | "TU" | "WE" | "TH" | "FR" | "SA" | "SU";
+
+export interface Repeat {
+  freq: "daily" | "weekly" | "monthly" | "yearly";
+  interval: number;
+  byDay?: Weekday[];
+  until?: string | null;
+  count?: number | null;
+}
+
 export interface CalendarEvent extends Base {
   startAt: string;
   endAt: string;
   allDay: boolean;
   projectId: string | null;
   syncStatus: "local" | "pending" | "synced" | "error";
+  /** Faz parte de uma série (ocorrência da série ou ocorrência alterada). */
+  recurring: boolean;
+  /** Série de origem; numa ocorrência da série é o próprio id. */
+  seriesId: string | null;
+  occurrenceStart?: string | null;
+  seriesStartAt?: string | null;
+  seriesEndAt?: string | null;
+  recurrence: string | null;
+  repeat: Repeat | null;
+  customRepeat: boolean;
+  reminderMinutes: number | null;
 }
 
 export interface Conflict {
