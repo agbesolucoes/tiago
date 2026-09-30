@@ -68,6 +68,14 @@ describe("isolamento entre workspaces", () => {
     expect(list.map((t: any) => t.id)).toEqual([task.id]);
   });
 
+  it("lista só os membros do próprio workspace", async () => {
+    const owner = await makeUser();
+    const member = await makeUser({ workspaceId: owner.workspaceId, role: "member" });
+    await makeUser();
+    const list = await json(await call(member, "GET", "/api/members"));
+    expect(list.map((m: any) => m.id).sort()).toEqual([owner.id, member.id].sort());
+  });
+
   it("sem sessão ou com sessão inválida retorna 401", async () => {
     expect((await call(null, "GET", "/api/tasks")).status).toBe(401);
     expect((await call({ id: "x", workspaceId: "x", cookie: "sid=falso" }, "GET", "/api/tasks")).status).toBe(401);

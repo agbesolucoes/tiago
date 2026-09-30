@@ -1,5 +1,7 @@
 # Copie para .dev.vars (não vai para o Git) e preencha.
-APP_URL=http://localhost:8787
+APP_URL=http://localhost:5173
 ALLOWED_EMAILS=tdeottis@gmail.com
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+# Login sem Google, só em localhost: abra /auth/dev-login
+DEV_LOGIN=true

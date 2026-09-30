@@ -3,6 +3,13 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-15",
   "compatibility_flags": ["nodejs_compat"],
+  // Telas (build do Vite). /api e /auth passam primeiro pelo Worker.
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/auth/*"]
+  },
   "vars": {
     "APP_URL": "https://central.example.com",
     "ALLOWED_EMAILS": "tdeottis@gmail.com"

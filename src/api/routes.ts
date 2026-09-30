@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gt, gte, inArray, lt, ne, or, sql, type SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Hono } from "hono";
-import { auditLog, events, ideas, ideaStatuses, ideaTags, priorities, projects, projectStatuses, tags, tasks, taskStatuses } from "../db/schema";
+import { auditLog, events, ideas, memberships, users, ideaStatuses, ideaTags, priorities, projects, projectStatuses, tags, tasks, taskStatuses } from "../db/schema";
 import { newId } from "../lib/crypto";
 import { localDayRange } from "../lib/time";
 import { requireMember, requireRole, type AppEnv, type RequestContext } from "./context";
@@ -409,6 +409,19 @@ async function getEvent(ctx: RequestContext, id: string) {
   const row = await ctx.db.query.events.findFirst({ where: and(eq(events.id, id), eq(events.workspaceId, ctx.workspaceId)) });
   return row ?? notFound();
 }
+
+// ---------- Membros ----------
+
+api.get("/members", async (c) => {
+  const ctx = c.get("ctx");
+  const rows = await ctx.db
+    .select({ id: users.id, email: users.email, name: users.name, role: memberships.role })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(eq(memberships.workspaceId, ctx.workspaceId))
+    .orderBy(asc(users.email));
+  return c.json(rows);
+});
 
 // ---------- Painel e busca ----------
 
