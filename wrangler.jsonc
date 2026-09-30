@@ -1,0 +1,14 @@
+{
+  "name": "central-organizacao",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "APP_URL": "https://central.example.com",
+    "ALLOWED_EMAILS": "tdeottis@gmail.com"
+  },
+  // GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET: `wrangler secret put`, nunca no Git.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "central-organizacao", "database_id": "local", "migrations_dir": "migrations" }
+  ]
+}
