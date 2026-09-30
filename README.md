@@ -104,6 +104,10 @@ Passo a passo em [docs/backup-e-restauracao.md](docs/backup-e-restauracao.md).
 
 ## Publicar
 
+**Hostinger (Node.js):** passo a passo em [docs/publicar-na-hostinger.md](docs/publicar-na-hostinger.md). `npm run build` gera as telas e o servidor (`dist/server/index.mjs`), e `npm start` sobe o app com SQLite e o agendador. `npm run test:node` testa o servidor Node.
+
+**Cloudflare:**
+
 1. `wrangler d1 create central-organizacao` e copie o `database_id` para o `wrangler.jsonc`. Crie também o bucket dos backups: `wrangler r2 bucket create central-organizacao-backups`.
 2. Ajuste `APP_URL` e `ALLOWED_EMAILS` em `vars`.
 3. `wrangler secret put` para `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `TOKEN_ENCRYPTION_KEY` (e, para o seletor do Drive, `GOOGLE_PICKER_API_KEY` e `GOOGLE_PROJECT_NUMBER`; para o bot, `TELEGRAM_BOT_TOKEN` e `TELEGRAM_WEBHOOK_SECRET`, veja [docs/configurar-telegram.md](docs/configurar-telegram.md); para os backups, `BACKUP_ENCRYPTION_KEY`) (veja [docs/configurar-google-cloud.md](docs/configurar-google-cloud.md)).

@@ -6,9 +6,23 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "lib": ["ES2022"],
-    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"]
+    "lib": [
+      "ES2022"
+    ],
+    "types": [
+      "@cloudflare/workers-types",
+      "@cloudflare/vitest-pool-workers/types"
+    ]
   },
-  "include": ["src", "test", "*.ts"],
-  "exclude": ["src/web"]
+  "include": [
+    "src",
+    "test",
+    "*.ts"
+  ],
+  "exclude": [
+    "src/web",
+    "src/node",
+    "test-node",
+    "vitest.node.config.ts"
+  ]
 }
