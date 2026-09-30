@@ -1,0 +1,5 @@
+# Copie para .dev.vars (não vai para o Git) e preencha.
+APP_URL=http://localhost:8787
+ALLOWED_EMAILS=tdeottis@gmail.com
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
