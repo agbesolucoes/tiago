@@ -9,9 +9,11 @@ import type { Env } from "../env";
 import { decryptSecret } from "../lib/secret";
 import { requireMember, requireRole, type AppEnv, type RequestContext } from "./context";
 import { auditInsert, parseBody, ValidationError } from "./helpers";
+import { registerTelegram } from "./telegram";
 
 export const integrations = new Hono<AppEnv>();
 integrations.use("*", requireMember);
+registerTelegram(integrations);
 
 const toIso = (ms: number | null) => (ms == null ? null : new Date(ms).toISOString());
 

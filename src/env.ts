@@ -11,6 +11,10 @@ export interface Env {
   /** Chave de API (restrita ao domínio) e número do projeto Google Cloud para o Google Picker. Opcionais. */
   GOOGLE_PICKER_API_KEY?: string;
   GOOGLE_PROJECT_NUMBER?: string;
+  /** Token do bot (BotFather), segredo do webhook (cabeçalho X-Telegram-Bot-Api-Secret-Token) e @ do bot. Opcionais. */
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_WEBHOOK_SECRET?: string;
+  TELEGRAM_BOT_USERNAME?: string;
   /** "true" libera /auth/dev-login em localhost, para desenvolver sem Google. Nunca em produção. */
   DEV_LOGIN?: string;
   /** "false" desliga o envio imediato ao Google após cada gravação (fica só o cron). */

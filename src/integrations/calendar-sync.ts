@@ -334,7 +334,7 @@ async function runJob(deps: SyncDeps, client: GoogleClient, job: typeof syncJobs
 }
 
 /** Processa a fila de envio. Falhas transitórias voltam com backoff; as permanentes marcam erro. */
-export async function processJobs(deps: SyncDeps, opts: { workspaceId?: string; limit?: number } = {}) {
+export async function processJobs(deps: SyncDeps, opts: { workspaceId?: string; eventId?: string; limit?: number } = {}) {
   const { db } = deps;
   const now = deps.now?.() ?? Date.now();
   const jobs = await db
@@ -345,6 +345,7 @@ export async function processJobs(deps: SyncDeps, opts: { workspaceId?: string; 
         eq(syncJobs.status, "pending"),
         lte(syncJobs.nextAttemptAt, now),
         opts.workspaceId ? eq(syncJobs.workspaceId, opts.workspaceId) : undefined,
+        opts.eventId ? eq(syncJobs.eventId, opts.eventId) : undefined,
       ),
     )
     .orderBy(syncJobs.nextAttemptAt)

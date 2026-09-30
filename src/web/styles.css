@@ -417,3 +417,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .decision-list input { flex: 1; min-width: 0; }
 .decision-task { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; font-weight: 600; text-decoration: none; padding: 0 0.5rem; color: var(--ok); white-space: nowrap; }
 .add-decision { align-self: flex-start; margin-top: 0.25rem; }
+
+/* ---------- Telegram ---------- */
+.check-line { display: flex; align-items: center; gap: 0.6rem; cursor: pointer; }
+.telegram-help { margin: 0; }
+.link-code { display: flex; flex-direction: column; gap: 0.6rem; }
+.link-code p { margin: 0; }
+.link-code-value { align-self: flex-start; font-size: 1.25rem; font-weight: 700; letter-spacing: 0.06em; padding: 0.5rem 0.85rem; border-radius: 10px; background: var(--surface-2, var(--accent-soft)); border: 1px solid var(--border); overflow-wrap: anywhere; }
+.telegram-admin { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 0.75rem; }

@@ -69,9 +69,20 @@ A mesma conexão Google pede também `drive.file`: a Central só enxerga arquivo
 - **Seletor do Google (Picker):** aparece quando os segredos `GOOGLE_PICKER_API_KEY` e `GOOGLE_PROJECT_NUMBER` existem. O token de acesso vai para o navegador só na hora de abrir o seletor e não é guardado.
 - **Registro da reunião:** em cada compromisso, pauta, resumo e decisões (`GET/PUT /api/events/:id/notes`). `POST /api/events/:id/notes/decisions/:decisionId/task` transforma uma decisão em tarefa com o projeto do compromisso e `source_event_id`; cada decisão vira tarefa uma vez só.
 
+## Telegram
+
+Cada pessoa liga o próprio Telegram em **Configurações → Telegram**: a Central gera um código de 8 caracteres (vale 15 minutos, uso único, guardado só como hash) e o bot associa o `user_id` do Telegram, nunca o nome. O bot só aceita conversa privada e contas ligadas.
+
+- **Webhook** em `POST /integrations/telegram/webhook`, validando `X-Telegram-Bot-Api-Secret-Token` em tempo constante. Cada `update_id` entra em `processed_updates` (chave primária), então uma retransmissão não repete nada; se o processamento falhar antes de gravar, o registro é desfeito para o Telegram tentar de novo.
+- **Comandos:** `/hoje`, `/tarefa`, `/ideia`, `/evento`, `/concluir`, `/cancelar`, `/ajuda`. Datas relativas em português (hoje, amanhã, sexta, 12/10, dia 15, 14h, 9h às 10h30) são lidas no fuso do workspace por `src/lib/nl-date.ts`.
+- **Confirmações:** compromissos, cancelamentos e conclusões ambíguas viram `pending_confirmations` (vencem em 30 min) com botões. A troca para confirmado é atômica e o compromisso usa o id da confirmação, então tocar duas vezes não duplica nada, nem no Google. Depois de gravar, o bot envia ao Google na hora e só diz "agendado" com a resposta dele; se o Google não confirmar, diz que ficou pendente.
+- **Resumo diário:** cron `0 11 * * *` (8h em São Paulo) manda o dia para quem ligou o Telegram e deixou o resumo ativo, só quando há algo. A mesma rodada limpa updates antigos e códigos vencidos.
+
+Passo a passo do bot em [docs/configurar-telegram.md](docs/configurar-telegram.md).
+
 ## Publicar
 
 1. `wrangler d1 create central-organizacao` e copie o `database_id` para o `wrangler.jsonc`.
 2. Ajuste `APP_URL` e `ALLOWED_EMAILS` em `vars`.
-3. `wrangler secret put` para `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `TOKEN_ENCRYPTION_KEY` (e, para o seletor do Drive, `GOOGLE_PICKER_API_KEY` e `GOOGLE_PROJECT_NUMBER`) (veja [docs/configurar-google-cloud.md](docs/configurar-google-cloud.md)).
+3. `wrangler secret put` para `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `TOKEN_ENCRYPTION_KEY` (e, para o seletor do Drive, `GOOGLE_PICKER_API_KEY` e `GOOGLE_PROJECT_NUMBER`; para o bot, `TELEGRAM_BOT_TOKEN` e `TELEGRAM_WEBHOOK_SECRET`, veja [docs/configurar-telegram.md](docs/configurar-telegram.md)) (veja [docs/configurar-google-cloud.md](docs/configurar-google-cloud.md)).
 4. `npm run deploy` (build, migrations remotas e deploy).

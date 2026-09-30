@@ -19,6 +19,9 @@ export default defineConfig(async () => {
             // Nos testes a fila é processada explicitamente.
             PUSH_ON_WRITE: "false",
             TOKEN_ENCRYPTION_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+            TELEGRAM_BOT_TOKEN: "123:bot-test",
+            TELEGRAM_WEBHOOK_SECRET: "segredo-webhook",
+            TELEGRAM_BOT_USERNAME: "CentralTesteBot",
           },
         },
       }),

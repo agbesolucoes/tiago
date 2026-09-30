@@ -11,7 +11,7 @@
     "run_worker_first": ["/api/*", "/auth/*", "/integrations/*"]
   },
   // Sincronização com o Google Agenda a cada 5 minutos.
-  "triggers": { "crons": ["*/5 * * * *"] },
+  "triggers": { "crons": ["*/5 * * * *", "0 11 * * *"] },
   "vars": {
     "APP_URL": "https://central.example.com",
     "ALLOWED_EMAILS": "tdeottis@gmail.com"

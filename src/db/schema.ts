@@ -332,3 +332,66 @@ export const meetingNotes = sqliteTable("meeting_notes", {
   updatedBy: text().references(() => users.id, { onDelete: "set null" }),
   ...timestamps,
 });
+
+// ---------- Telegram ----------
+
+/** Conta do Telegram ligada a uma pessoa. O vínculo usa o user_id do Telegram, nunca o nome. */
+export const telegramLinks = sqliteTable(
+  "telegram_links",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    telegramUserId: text().notNull().unique(),
+    chatId: text().notNull(),
+    username: text(),
+    dailySummary: integer({ mode: "boolean" }).notNull().default(true),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("telegram_links_user_idx").on(t.workspaceId, t.userId)],
+);
+
+/** Código curto de vínculo, gerado na Central e enviado ao bot. Guardamos só o hash. */
+export const telegramLinkCodes = sqliteTable("telegram_link_codes", {
+  codeHash: text().primaryKey(),
+  workspaceId: text()
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  userId: text()
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  expiresAt: integer().notNull(),
+  createdAt: now(),
+});
+
+export const confirmationKinds = ["event.create", "event.delete", "task.complete"] as const;
+
+/** Ação pedida pelo bot que só é gravada depois do "Confirmar". */
+export const pendingConfirmations = sqliteTable(
+  "pending_confirmations",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text({ enum: confirmationKinds }).notNull(),
+    payload: text({ mode: "json" }).$type<Record<string, unknown>>().notNull(),
+    status: text({ enum: ["pending", "confirmed", "cancelled"] }).notNull().default("pending"),
+    expiresAt: integer().notNull(),
+    ...timestamps,
+  },
+  (t) => [index("pending_confirmations_user_idx").on(t.userId, t.status)],
+);
+
+/** Updates do Telegram já tratados: o índice único impede processar uma retransmissão duas vezes. */
+export const processedUpdates = sqliteTable("processed_updates", {
+  updateId: integer().primaryKey(),
+  processedAt: now(),
+});
