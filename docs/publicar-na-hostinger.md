@@ -69,3 +69,7 @@ O segundo comando aplica as migrações que faltarem, troca todo o conteúdo num
 
 - Um único processo: o SQLite é local ao servidor, então não rode duas cópias do app apontando para o mesmo banco.
 - Se o app ficar parado, os jobs agendados não rodam nesse intervalo. A sincronização com o Google recupera sozinha na volta; lembretes com mais de 1 hora de atraso são descartados.
+
+## Por que existe o `.npmrc`
+
+O `.npmrc` do projeto tem `ignore-scripts=true`. Sem ele, o npm tenta compilar o better-sqlite3 no servidor (`node-gyp rebuild`), e na Hostinger não há compilador: a instalação falha com "Failed to install dependencies". Com ele, o npm usa o binário pronto que já vem no pacote (`prebuilds/linux-x64.node`).
