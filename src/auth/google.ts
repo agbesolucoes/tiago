@@ -11,6 +11,8 @@ export const CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
   "https://www.googleapis.com/auth/calendar.events",
 ];
+/** Só arquivos criados pela Central ou escolhidos no Picker; nunca o Drive inteiro. */
+export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
 export interface LoginTransaction {
   state: string;

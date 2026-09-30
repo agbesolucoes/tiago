@@ -401,3 +401,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .facts { grid-template-columns: 1fr; }
   .settings-section { padding: 1rem; }
 }
+
+/* ---------- Anexos e reunião ---------- */
+.attachments { display: flex; flex-direction: column; gap: 0.4rem; border-top: 1px solid var(--border); padding-top: 0.85rem; }
+.attachments-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.attachments-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.attachments p { margin: 0; }
+.attachment-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.attachment-list li { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); }
+.attachment-list a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.settings-section .attachments { border-top: 0; padding-top: 0; }
+.notes-sub { margin: -0.25rem 0 0.75rem; }
+.decision-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.decision-list li { display: flex; align-items: center; gap: 0.4rem; }
+.decision-list input { flex: 1; min-width: 0; }
+.decision-task { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; font-weight: 600; text-decoration: none; padding: 0 0.5rem; color: var(--ok); white-space: nowrap; }
+.add-decision { align-self: flex-start; margin-top: 0.25rem; }

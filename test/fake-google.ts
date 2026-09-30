@@ -40,6 +40,68 @@ export class FakeGoogle {
     return null;
   }
 
+  // ---------- Drive ----------
+  files = new Map<string, { id: string; name: string; mimeType: string; parents: string[]; trashed: boolean; size?: string; content?: string; byApp: boolean }>();
+  uploads = new Map<string, { name: string; parents: string[]; mimeType: string; size: number }>();
+  fileSeq = 0;
+
+  addUserFile(name: string, byApp = false) {
+    const id = `f${++this.fileSeq}`;
+    this.files.set(id, { id, name, mimeType: "application/pdf", parents: ["root"], trashed: false, size: "10", byApp });
+    return id;
+  }
+
+  private fileView(f: { id: string; name: string; mimeType: string; parents: string[]; trashed: boolean; size?: string }) {
+    return { id: f.id, name: f.name, mimeType: f.mimeType, parents: f.parents, trashed: f.trashed, size: f.size, webViewLink: `https://drive.google.com/file/d/${f.id}/view` };
+  }
+
+  /** Arquivos que o app enxerga com drive.file: os que ele criou ou os escolhidos pela pessoa. */
+  pickedIds = new Set<string>();
+
+  private async drive(url: URL, method: string, init?: RequestInit) {
+    const f = this.failure(`${method} drive`);
+    if (f) return f;
+    if (url.pathname.includes("/permissions")) return this.json(403, { error: { code: 403, message: "ACL não deve ser tocada" } });
+    const visible = (id: string) => {
+      const file = this.files.get(id);
+      return file && (file.byApp || this.pickedIds.has(id)) ? file : null;
+    };
+    if (url.pathname === "/drive/v3/files" && method === "GET") {
+      const q = url.searchParams.get("q") ?? "";
+      const name = q.match(/name='((?:[^'\\]|\\.)*)'/)?.[1];
+      const parent = q.match(/'([^']+)' in parents/)?.[1];
+      const items = [...this.files.values()].filter((x) => x.byApp && !x.trashed && x.name === name && x.parents.includes(parent!) && x.mimeType === "application/vnd.google-apps.folder");
+      return this.json(200, { files: items.map((x) => this.fileView(x)) });
+    }
+    if (url.pathname === "/drive/v3/files" && method === "POST") {
+      const body = JSON.parse(init!.body as string);
+      const id = `d${++this.fileSeq}`;
+      this.files.set(id, { id, name: body.name, mimeType: body.mimeType, parents: body.parents ?? ["root"], trashed: false, byApp: true });
+      return this.json(200, this.fileView(this.files.get(id)!));
+    }
+    const get = url.pathname.match(/^\/drive\/v3\/files\/([^/]+)$/);
+    if (get && method === "GET") {
+      const file = visible(decodeURIComponent(get[1]));
+      return file ? this.json(200, this.fileView(file)) : this.json(404, { error: { code: 404, message: "File not found" } });
+    }
+    if (url.pathname === "/upload/drive/v3/files" && method === "POST") {
+      const meta = JSON.parse(init!.body as string);
+      const h = new Headers(init!.headers);
+      const session = `s${++this.fileSeq}`;
+      this.uploads.set(session, { name: meta.name, parents: meta.parents, mimeType: h.get("x-upload-content-type")!, size: Number(h.get("x-upload-content-length")) });
+      return new Response(null, { status: 200, headers: { location: `https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=${session}` } });
+    }
+    if (url.pathname === "/upload/drive/v3/files" && method === "PUT") {
+      const session = this.uploads.get(url.searchParams.get("upload_id")!);
+      if (!session) return this.json(404, {});
+      const content = await new Response(init!.body as BodyInit).text();
+      const id = `u${++this.fileSeq}`;
+      this.files.set(id, { id, name: session.name, mimeType: session.mimeType, parents: session.parents, trashed: false, size: String(content.length), content, byApp: true });
+      return this.json(200, this.fileView(this.files.get(id)!));
+    }
+    return this.json(404, {});
+  }
+
   fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
     const method = init?.method ?? "GET";
@@ -52,6 +114,8 @@ export class FakeGoogle {
       if (this.tokenRevoked) return this.json(400, { error: "invalid_grant", error_description: "Token has been expired or revoked." });
       return this.json(200, { access_token: `at-${this.seq}`, expires_in: 3600 });
     }
+
+    if (url.pathname.startsWith("/drive/") || url.pathname.startsWith("/upload/drive/")) return this.drive(url, method, init);
 
     const m = url.pathname.match(/^\/calendar\/v3\/(users\/me\/calendarList|calendars\/([^/]+)\/events(?:\/([^/]+))?)$/);
     if (!m) return this.json(404, {});

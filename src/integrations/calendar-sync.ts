@@ -40,12 +40,12 @@ async function markAccount(deps: SyncDeps, account: Account, status: Account["st
     .where(eq(integrationAccounts.id, account.id));
 }
 
-/** Cliente com access token válido; renova com o refresh token quando preciso. */
-export async function clientFor(deps: SyncDeps, account: Account): Promise<GoogleClient> {
+/** Access token válido; renova com o refresh token quando preciso. */
+export async function accessTokenFor(deps: SyncDeps, account: Account): Promise<string> {
   const key = deps.env.TOKEN_ENCRYPTION_KEY;
   const now = deps.now?.() ?? Date.now();
   if (account.accessTokenEnc && account.accessTokenExpiresAt && account.accessTokenExpiresAt > now) {
-    return new GoogleClient(await decryptSecret(account.accessTokenEnc, key), deps.fetcher ?? googleFetch.impl);
+    return decryptSecret(account.accessTokenEnc, key);
   }
   try {
     const { accessToken, expiresAt } = await refreshAccessToken({
@@ -54,18 +54,25 @@ export async function clientFor(deps: SyncDeps, account: Account): Promise<Googl
       clientSecret: deps.env.GOOGLE_CLIENT_SECRET,
       fetcher: deps.fetcher,
     });
+    const accessTokenEnc = await encryptSecret(accessToken, key);
     await deps.db
       .update(integrationAccounts)
-      .set({ accessTokenEnc: await encryptSecret(accessToken, key), accessTokenExpiresAt: expiresAt, updatedAt: Date.now() })
+      .set({ accessTokenEnc, accessTokenExpiresAt: expiresAt, updatedAt: Date.now() })
       .where(eq(integrationAccounts.id, account.id));
+    account.accessTokenEnc = accessTokenEnc;
     account.accessTokenExpiresAt = expiresAt;
-    return new GoogleClient(accessToken, deps.fetcher ?? googleFetch.impl);
+    return accessToken;
   } catch (e) {
     if (e instanceof GoogleError && e.revoked) {
       await markAccount(deps, account, "revoked", "O acesso ao Google foi revogado. Conecte de novo.");
     }
     throw e;
   }
+}
+
+/** Cliente do Google Agenda com token válido. */
+export async function clientFor(deps: SyncDeps, account: Account): Promise<GoogleClient> {
+  return new GoogleClient(await accessTokenFor(deps, account), deps.fetcher ?? googleFetch.impl);
 }
 
 // ---------- Agendas ----------

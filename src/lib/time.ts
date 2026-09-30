@@ -55,3 +55,11 @@ export function localDayRange(utcMs: number, timeZone: string): [number, number]
     .slice(0, 10);
   return [start, parseDateTime(next, timeZone)!];
 }
+
+/** "05/10/2026 às 14:00" no fuso indicado. */
+export function formatLocal(ms: number, timeZone: string) {
+  const d = new Date(ms);
+  const date = new Intl.DateTimeFormat("pt-BR", { timeZone, day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+  const time = new Intl.DateTimeFormat("pt-BR", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
+  return `${date} às ${time}`;
+}
