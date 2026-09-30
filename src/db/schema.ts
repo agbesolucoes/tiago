@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnySQLiteColumn,
   index,
   integer,
   primaryKey,
@@ -107,11 +108,21 @@ export const events = sqliteTable(
     remoteId: text(),
     calendarId: text(),
     syncStatus: text({ enum: syncStatuses }).notNull().default("local"),
+    // Série: RRULE sem o prefixo, datas excluídas (início original em ms) e fim da última ocorrência (null = sem fim).
+    recurrence: text(),
+    exdates: text({ mode: "json" }).$type<number[]>(),
+    recurrenceEndsAt: integer(),
+    // Exceção: ocorrência de uma série alterada só naquele dia.
+    seriesId: text().references((): AnySQLiteColumn => events.id, { onDelete: "cascade" }),
+    originalStartAt: integer(),
+    /** Minutos de antecedência do lembrete; null = sem lembrete. */
+    reminderMinutes: integer(),
     createdBy: text().references(() => users.id),
     ...timestamps,
   },
   (t) => [
     index("events_ws_start_idx").on(t.workspaceId, t.startAt),
+    index("events_series_idx").on(t.seriesId),
     uniqueIndex("events_remote_idx").on(t.workspaceId, t.calendarId, t.remoteId),
   ],
 );
@@ -350,6 +361,7 @@ export const telegramLinks = sqliteTable(
     chatId: text().notNull(),
     username: text(),
     dailySummary: integer({ mode: "boolean" }).notNull().default(true),
+    reminders: integer({ mode: "boolean" }).notNull().default(true),
     ...timestamps,
   },
   (t) => [uniqueIndex("telegram_links_user_idx").on(t.workspaceId, t.userId)],
@@ -427,3 +439,9 @@ export const appErrors = sqliteTable(
   },
   (t) => [index("app_errors_created_idx").on(t.createdAt)],
 );
+
+/** Lembretes já enviados: a chave (evento + início da ocorrência + pessoa) impede aviso repetido. */
+export const reminderLog = sqliteTable("reminder_log", {
+  key: text().primaryKey(),
+  sentAt: now(),
+});

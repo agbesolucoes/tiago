@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ideaStatuses, priorities, projectStatuses, taskStatuses } from "../db/schema";
+import { weekdays } from "../lib/recurrence";
 
 const title = z.string().trim().min(1, "título obrigatório").max(200);
 const description = z.string().max(10_000).nullable().optional();
@@ -43,6 +44,19 @@ export const ideaConvert = z.strictObject({
   priority: z.enum(priorities).optional(),
 });
 
+export const repeat = z
+  .strictObject({
+    freq: z.enum(["daily", "weekly", "monthly", "yearly"]),
+    interval: z.number().int().min(1).max(99).default(1),
+    byDay: z.array(z.enum(weekdays)).max(7).optional(),
+    until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "data inválida").nullable().optional(),
+    count: z.number().int().min(1).max(999).nullable().optional(),
+  })
+  .refine((r) => !(r.until && r.count), { message: "escolha data final ou número de vezes, não os dois", path: ["count"] });
+
+/** Minutos de antecedência do lembrete (até 4 semanas); null = sem lembrete. */
+const reminderMinutes = z.number().int().min(0).max(40_320).nullable().optional();
+
 export const eventCreate = z.strictObject({
   title,
   description,
@@ -50,5 +64,19 @@ export const eventCreate = z.strictObject({
   endAt: dateTime,
   allDay: z.boolean().optional(),
   projectId: id.nullable().optional(),
+  repeat: repeat.nullable().optional(),
+  reminderMinutes,
 });
 export const eventUpdate = eventCreate.partial();
+
+/** Uma ocorrência da série, pelo início original (ISO). */
+export const occurrenceSkip = z.strictObject({ occurrenceStart: dateTime });
+export const occurrenceDetach = z.strictObject({
+  occurrenceStart: dateTime,
+  title: title.optional(),
+  description,
+  startAt: dateTime.optional(),
+  endAt: dateTime.optional(),
+  projectId: id.nullable().optional(),
+  reminderMinutes,
+});

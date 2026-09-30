@@ -36,6 +36,13 @@
       "when": 1790775832469,
       "tag": "0004_operacao",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790776562192,
+      "tag": "0005_recorrencias",
+      "breakpoints": true
     }
   ]
 }

@@ -4,7 +4,7 @@ const OFFSET_RE = /(Z|[+-]\d{2}:\d{2})$/;
 const LOCAL_RE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?$/;
 
 /** Offset do fuso em ms para um instante UTC (positivo a leste de Greenwich). */
-function tzOffsetMs(utcMs: number, timeZone: string): number {
+export function tzOffsetMs(utcMs: number, timeZone: string): number {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     hourCycle: "h23",

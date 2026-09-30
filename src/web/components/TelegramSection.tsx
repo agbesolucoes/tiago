@@ -10,6 +10,7 @@ interface TelegramStatus {
   linked: boolean;
   username: string | null;
   dailySummary: boolean;
+  reminders: boolean;
 }
 
 interface LinkCode {
@@ -89,6 +90,20 @@ export function TelegramSection() {
               }
             />
             <span>Receber o resumo do dia às 8h (só quando houver algo no dia)</span>
+          </label>
+          <label className="check-line">
+            <input
+              type="checkbox"
+              checked={data.reminders}
+              disabled={busy === "reminders"}
+              onChange={(e) =>
+                run("reminders", async () => {
+                  const r = await api.patch<{ reminders: boolean }>("/api/integrations/telegram", { reminders: e.target.checked });
+                  setData({ ...data, reminders: r.reminders });
+                })
+              }
+            />
+            <span>Receber os lembretes dos compromissos que têm lembrete</span>
           </label>
           <p className="muted small telegram-help">
             Comandos: /hoje, /tarefa, /ideia, /evento, /concluir, /cancelar e /ajuda. Compromissos e cancelamentos só são gravados depois que você confirma no Telegram.

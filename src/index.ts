@@ -14,6 +14,7 @@ import { getDb } from "./db/client";
 import { auditLog, integrationAccounts, users } from "./db/schema";
 import type { Env } from "./env";
 import { refreshCalendarList, syncAll, syncWorkspace } from "./integrations/calendar-sync";
+import { pruneReminders, sendReminders } from "./integrations/reminders";
 import { handleUpdate, sendDailySummaries, telegramEnabled } from "./integrations/telegram-bot";
 import type { TgUpdate } from "./integrations/telegram-client";
 import { newId } from "./lib/crypto";
@@ -275,8 +276,12 @@ export default {
           if (backupConfigured(env)) await runBackup({ db, env }, "cron");
           else log("warn", "backup.skipped", { reason: "não configurado" });
           await pruneOps(db);
+          await pruneReminders(db);
         }),
       );
-    else ctx.waitUntil(run("sync", () => syncAll({ db, env })));
+    else {
+      ctx.waitUntil(run("sync", () => syncAll({ db, env })));
+      ctx.waitUntil(run("lembretes", () => sendReminders({ db, env })));
+    }
   },
 } satisfies ExportedHandler<Env>;

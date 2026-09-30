@@ -1,8 +1,9 @@
 // Bot do Telegram: vínculo por código, comandos em conversa privada e confirmação antes de gravar
 // compromissos, exclusões e conclusões ambíguas.
 
-import { and, asc, desc, eq, gt, gte, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import type { RequestContext } from "../api/context";
+import { deleteEventStatements } from "../api/event-delete";
 import { auditInsert, likePattern } from "../api/helpers";
 import type { Db } from "../db/client";
 import {
@@ -21,6 +22,7 @@ import type { Env } from "../env";
 import { newId, sha256 } from "../lib/crypto";
 import { recordError } from "../lib/log";
 import { addMinutes, parseWhen } from "../lib/nl-date";
+import { listOccurrences } from "../lib/occurrences";
 import { localDayRange, parseDateTime } from "../lib/time";
 import { enqueueStatements, processJobs } from "./calendar-sync";
 import { TelegramClient, type InlineButton, type TgMessage, type TgUpdate } from "./telegram-client";
@@ -214,13 +216,8 @@ async function linkAccount(deps: BotDeps, msg: TgMessage, rawCode: string): Prom
 export async function todaySummary(ctx: RequestContext, now: number, opts: { skipEmpty?: boolean } = {}) {
   const tz = ctx.timezone;
   const [dayStart, dayEnd] = localDayRange(now, tz);
-  const [evs, due] = await ctx.db.batch([
-    ctx.db
-      .select()
-      .from(events)
-      .where(and(eq(events.workspaceId, ctx.workspaceId), lt(events.startAt, dayEnd), gte(events.endAt, dayStart)))
-      .orderBy(asc(events.startAt))
-      .limit(20),
+  const evs = (await listOccurrences(ctx.db, ctx.workspaceId, dayStart, dayEnd)).slice(0, 20);
+  const [due] = await ctx.db.batch([
     ctx.db
       .select()
       .from(tasks)
@@ -299,12 +296,7 @@ async function proposeEvent(deps: BotDeps, ctx: RequestContext, link: Link, args
     return;
   }
   const title = w.title.slice(0, 200);
-  const clash = await ctx.db
-    .select({ title: events.title, startAt: events.startAt, endAt: events.endAt })
-    .from(events)
-    .where(and(eq(events.workspaceId, ctx.workspaceId), lt(events.startAt, endAt), gt(events.endAt, startAt)))
-    .orderBy(asc(events.startAt))
-    .limit(3);
+  const clash = (await listOccurrences(ctx.db, ctx.workspaceId, startAt, endAt)).slice(0, 3);
   const id = await propose(deps, ctx, link, "event.create", { title, startAt, endAt }, now);
   const lines = ["Confirma o compromisso?", "", title, when(startAt, endAt, ctx.timezone)];
   if (!w.end) lines.push("(duração de 1 hora; para outra, envie com o término, como 9h às 10h30)");
@@ -355,9 +347,15 @@ async function proposeCancel(deps: BotDeps, ctx: RequestContext, link: Link, arg
     return;
   }
   const found = await ctx.db
-    .select({ id: events.id, title: events.title, startAt: events.startAt, endAt: events.endAt })
+    .select({ id: events.id, title: events.title, startAt: events.startAt, endAt: events.endAt, recurrence: events.recurrence })
     .from(events)
-    .where(and(eq(events.workspaceId, ctx.workspaceId), gte(events.endAt, now), sql`${events.title} LIKE ${likePattern(args)} ESCAPE '\\'`))
+    .where(
+      and(
+        eq(events.workspaceId, ctx.workspaceId),
+        or(gte(events.endAt, now), isNotNull(events.recurrence)),
+        sql`${events.title} LIKE ${likePattern(args)} ESCAPE '\\'`,
+      ),
+    )
     .orderBy(asc(events.startAt))
     .limit(MAX_OPTIONS);
   if (!found.length) {
@@ -365,10 +363,12 @@ async function proposeCancel(deps: BotDeps, ctx: RequestContext, link: Link, arg
     return;
   }
   const id = await propose(deps, ctx, link, "event.delete", { ids: found.map((e) => e.id) }, now);
-  const label = (e: (typeof found)[number]) => `${fmt(e.startAt, ctx.timezone, { day: "2-digit", month: "2-digit" })} ${hour(e.startAt, ctx.timezone)} ${e.title}`.slice(0, 60);
+  const label = (e: (typeof found)[number]) =>
+    (e.recurrence ? `Série: ${e.title}` : `${fmt(e.startAt, ctx.timezone, { day: "2-digit", month: "2-digit" })} ${hour(e.startAt, ctx.timezone)} ${e.title}`).slice(0, 60);
   if (found.length === 1) {
     const e = found[0];
-    await say(deps, link.chatId, `Cancelar este compromisso? Ele sai da Central e do Google Agenda.\n\n${e.title}\n${when(e.startAt, e.endAt, ctx.timezone)}`, [
+    const what = e.recurrence ? `Cancelar a série inteira? Todas as repetições saem da Central e do Google Agenda.\n\n${e.title} (repete desde ${day(e.startAt, ctx.timezone)})` : `Cancelar este compromisso? Ele sai da Central e do Google Agenda.\n\n${e.title}\n${when(e.startAt, e.endAt, ctx.timezone)}`;
+    await say(deps, link.chatId, what, [
       [{ text: "Cancelar compromisso", callback_data: `c:${id}:0` }, { text: "Manter", callback_data: `x:${id}` }],
     ]);
     return;
@@ -465,12 +465,9 @@ async function execute(deps: BotDeps, ctx: RequestContext, conf: Confirmation, i
   if (ctx.role !== "owner" && ctx.role !== "admin") return "Só o dono ou um administrador pode cancelar compromissos.";
   const before = await ctx.db.query.events.findFirst({ where: and(eq(events.id, eventId), eq(events.workspaceId, ctx.workspaceId)) });
   if (!before) return "Esse compromisso já não existe na Central.";
-  const sync = await enqueueStatements(ctx.db, ctx.workspaceId, before, "event.delete");
-  await ctx.db.batch([
-    ctx.db.delete(events).where(and(eq(events.id, before.id), eq(events.workspaceId, ctx.workspaceId))),
-    auditInsert(ctx, "event", before.id, "delete", before, { via: "telegram" }),
-    ...sync,
-  ]);
+  const stmts = await deleteEventStatements(ctx, before);
+  await ctx.db.batch(stmts as [any, ...any[]]);
+  const sync = stmts.slice(3);
   const desc = `${before.title}\n${when(before.startAt, before.endAt, tz)}`;
   // Sem remoteId, o compromisso nunca chegou ao Google: não há o que apagar lá.
   if (!sync.length || !before.remoteId) return `Cancelado na Central:\n\n${desc}`;

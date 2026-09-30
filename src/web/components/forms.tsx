@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError } from "../api";
 import { useApp } from "../state";
-import { addDays, localDate, localTime, today } from "../time";
+import { addDays, formatDay, localDate, localTime, today } from "../time";
 import {
   ideaStatusLabel,
   priorityLabel,
@@ -12,6 +12,8 @@ import {
   type Idea,
   type IdeaStatus,
   type Priority,
+  type Repeat,
+  type Weekday,
   type Project,
   type ProjectStatus,
   type Task,
@@ -364,21 +366,160 @@ export function ConvertIdea({ idea, onClose, onDone }: { idea: Idea; onClose: ()
 
 // ---------- Compromisso ----------
 
+const WEEKDAYS: { code: Weekday; short: string; long: string }[] = [
+  { code: "MO", short: "S", long: "segunda" },
+  { code: "TU", short: "T", long: "terça" },
+  { code: "WE", short: "Q", long: "quarta" },
+  { code: "TH", short: "Q", long: "quinta" },
+  { code: "FR", short: "S", long: "sexta" },
+  { code: "SA", short: "S", long: "sábado" },
+  { code: "SU", short: "D", long: "domingo" },
+];
+const JS_WEEKDAY: Weekday[] = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+const weekdayOf = (day: string) => JS_WEEKDAY[new Date(`${day}T12:00:00Z`).getUTCDay()];
+
+const REMINDERS: [string, string][] = [
+  ["", "Sem lembrete"],
+  ["0", "Na hora"],
+  ["10", "10 minutos antes"],
+  ["30", "30 minutos antes"],
+  ["60", "1 hora antes"],
+  ["1440", "1 dia antes"],
+];
+
+const FREQ_UNIT: Record<Repeat["freq"], [string, string]> = {
+  daily: ["dia", "dias"],
+  weekly: ["semana", "semanas"],
+  monthly: ["mês", "meses"],
+  yearly: ["ano", "anos"],
+};
+
+/** Escolha da repetição: frequência, intervalo, dias da semana e fim. */
+function RepeatEditor({ value, onChange, day, error }: { value: Repeat | null; onChange: (r: Repeat | null) => void; day: string; error?: string }) {
+  const ends = value?.count ? "count" : value?.until ? "until" : "never";
+  const set = (patch: Partial<Repeat>) => value && onChange({ ...value, ...patch });
+  return (
+    <div className="repeat">
+      <div className="grid-2">
+        <Field label="Repetir" error={error}>
+          <select
+            value={value?.freq ?? ""}
+            onChange={(e) => {
+              const freq = e.target.value as Repeat["freq"] | "";
+              if (!freq) return onChange(null);
+              onChange({ freq, interval: value?.interval ?? 1, byDay: freq === "weekly" ? (value?.byDay?.length ? value.byDay : [weekdayOf(day)]) : undefined, until: value?.until ?? null, count: value?.count ?? null });
+            }}
+          >
+            <option value="">Não repete</option>
+            <option value="daily">Todo dia</option>
+            <option value="weekly">Toda semana</option>
+            <option value="monthly">Todo mês</option>
+            <option value="yearly">Todo ano</option>
+          </select>
+        </Field>
+        {value && (
+          <Field label="A cada">
+            <div className="inline-field">
+              <input type="number" min={1} max={99} value={value.interval} onChange={(e) => set({ interval: Math.max(1, Math.min(99, Number(e.target.value) || 1)) })} />
+              <span>{FREQ_UNIT[value.freq][value.interval === 1 ? 0 : 1]}</span>
+            </div>
+          </Field>
+        )}
+      </div>
+      {value?.freq === "weekly" && (
+        <div className="weekday-picker" role="group" aria-label="Dias da semana">
+          {WEEKDAYS.map((d) => {
+            const on = value.byDay?.includes(d.code);
+            return (
+              <button
+                key={d.code}
+                type="button"
+                className={`weekday${on ? " on" : ""}`}
+                aria-pressed={on}
+                aria-label={d.long}
+                onClick={() => {
+                  const next = on ? (value.byDay ?? []).filter((x) => x !== d.code) : [...(value.byDay ?? []), d.code];
+                  set({ byDay: next.length ? next : [weekdayOf(day)] });
+                }}
+              >
+                {d.short}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {value && (
+        <div className="grid-2">
+          <Field label="Termina">
+            <select
+              value={ends}
+              onChange={(e) => {
+                const v = e.target.value;
+                set(v === "never" ? { until: null, count: null } : v === "count" ? { until: null, count: value.count ?? 10 } : { count: null, until: value.until ?? addDays(day, 90) });
+              }}
+            >
+              <option value="never">Nunca</option>
+              <option value="until">Em uma data</option>
+              <option value="count">Depois de algumas vezes</option>
+            </select>
+          </Field>
+          {ends === "until" && (
+            <Field label="Último dia">
+              <input type="date" value={value.until ?? ""} min={day} onChange={(e) => set({ until: e.target.value || null })} required />
+            </Field>
+          )}
+          {ends === "count" && (
+            <Field label="Quantas vezes">
+              <input type="number" min={1} max={999} value={value.count ?? 1} onChange={(e) => set({ count: Math.max(1, Math.min(999, Number(e.target.value) || 1)) })} />
+            </Field>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type Scope = "one" | "series";
+
 export function EventForm({ event, date, onClose, onSaved }: { event?: CalendarEvent; date?: string; onClose: () => void; onSaved: (conflicts: Conflict[]) => void }) {
-  const { projects, canDelete, toast } = useApp();
+  const { projects, canDelete, toast, me } = useApp();
+  // Ocorrência de uma série: dá para mudar só este dia ou a série toda.
+  const isSeries = !!event?.recurrence;
+  const [scope, setScope] = useState<Scope>("one");
+  const seriesStart = event?.seriesStartAt ?? event?.startAt;
+  const seriesEnd = event?.seriesEndAt ?? event?.endAt;
+  const initial = (sc: Scope) => {
+    const s0 = event ? (isSeries && sc === "series" ? seriesStart! : event.startAt) : null;
+    const e0 = event ? (isSeries && sc === "series" ? seriesEnd! : event.endAt) : null;
+    return {
+      day: s0 ? localDate(s0) : (date ?? today()),
+      start: s0 ? localTime(s0) : "09:00",
+      endDay: e0 ? localDate(e0) : (date ?? today()),
+      end: e0 ? localTime(e0) : "10:00",
+    };
+  };
   const [title, setTitle] = useState(event?.title ?? "");
   const [description, setDescription] = useState(event?.description ?? "");
-  const [day, setDay] = useState(event ? localDate(event.startAt) : (date ?? today()));
-  const [start, setStart] = useState(event ? localTime(event.startAt) : "09:00");
-  const [endDay, setEndDay] = useState(event ? localDate(event.endAt) : (date ?? today()));
-  const [end, setEnd] = useState(event ? localTime(event.endAt) : "10:00");
+  const [day, setDay] = useState(initial("one").day);
+  const [start, setStart] = useState(initial("one").start);
+  const [endDay, setEndDay] = useState(initial("one").endDay);
+  const [end, setEnd] = useState(initial("one").end);
   const [projectId, setProjectId] = useState(event?.projectId ?? "");
+  const [repeat, setRepeat] = useState<Repeat | null>(event?.repeat ?? null);
+  const [reminder, setReminder] = useState(event?.reminderMinutes != null ? String(event.reminderMinutes) : "");
   const f = useSubmit();
   const [notesOpen, setNotesOpen] = useState(false);
-  const onDelete = useConfirmDelete(event && canDelete ? `/api/events/${event.id}` : null, "o compromisso", () => {
-    onSaved([]);
-    onClose();
-  });
+  const [deleting, setDeleting] = useState(false);
+  const editingOne = isSeries && scope === "one";
+
+  const changeScope = (sc: Scope) => {
+    const v = initial(sc);
+    setDay(v.day);
+    setStart(v.start);
+    setEndDay(v.endDay);
+    setEnd(v.end);
+    setScope(sc);
+  };
 
   // Ao mudar o início, o término acompanha para não ficar antes dele.
   const changeDay = (v: string) => {
@@ -400,27 +541,57 @@ export function EventForm({ event, date, onClose, onSaved }: { event?: CalendarE
   const submit = (e: FormEvent) => {
     e.preventDefault();
     f.run(async () => {
-      const body = { title, description: description || null, startAt: `${day}T${start}`, endAt: `${endDay}T${end}`, projectId: projectId || null };
-      const saved = event
-        ? await api.patch<CalendarEvent & { conflicts: Conflict[] }>(`/api/events/${event.id}`, body)
-        : await api.post<CalendarEvent & { conflicts: Conflict[] }>("/api/events", body);
-      toast(event ? "Compromisso atualizado." : "Compromisso criado.");
+      const body: Record<string, unknown> = {
+        title,
+        description: description || null,
+        startAt: `${day}T${start}`,
+        endAt: `${endDay}T${end}`,
+        projectId: projectId || null,
+        reminderMinutes: reminder === "" ? null : Number(reminder),
+      };
+      let saved: CalendarEvent & { conflicts: Conflict[] };
+      if (editingOne) {
+        saved = await api.post(`/api/events/${event!.id}/occurrences/detach`, { ...body, occurrenceStart: event!.occurrenceStart });
+      } else {
+        if (!event?.customRepeat && !(event?.seriesId && !isSeries)) body.repeat = repeat;
+        saved = event ? await api.patch(`/api/events/${event.id}`, body) : await api.post("/api/events", body);
+      }
+      toast(!event ? "Compromisso criado." : editingOne ? "Só este dia foi alterado." : isSeries ? "Série atualizada." : "Compromisso atualizado.");
       onSaved(saved.conflicts);
       onClose();
     });
   };
 
+  async function remove() {
+    if (!event) return;
+    const one = editingOne;
+    const msg = one ? `Excluir só o compromisso de ${localDate(event.startAt).split("-").reverse().join("/")}? Os outros dias da série continuam.` : isSeries ? "Excluir a série inteira? Todas as repetições saem da agenda." : "Excluir o compromisso? Isso não pode ser desfeito.";
+    if (!confirm(msg)) return;
+    setDeleting(true);
+    try {
+      if (one) await api.post(`/api/events/${event.id}/occurrences/skip`, { occurrenceStart: event.occurrenceStart });
+      else await api.del(`/api/events/${event.id}`);
+      toast(one ? "Esse dia saiu da série." : isSeries ? "Série excluída." : "Compromisso excluído.");
+      onSaved([]);
+      onClose();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (notesOpen && event) return <MeetingNotes event={event} onClose={() => setNotesOpen(false)} />;
 
   return (
     <Modal
-      title={event ? "Editar compromisso" : "Novo compromisso"}
+      title={event ? (isSeries ? "Editar compromisso que se repete" : "Editar compromisso") : "Novo compromisso"}
       onClose={onClose}
       footer={
         <Footer
-          saving={f.saving}
+          saving={f.saving || deleting}
           onClose={onClose}
-          onDelete={onDelete}
+          onDelete={event && canDelete ? remove : undefined}
           extra={
             event && (
               <button type="button" className="btn btn-secondary" onClick={() => setNotesOpen(true)} disabled={f.saving}>
@@ -433,11 +604,23 @@ export function EventForm({ event, date, onClose, onSaved }: { event?: CalendarE
     >
       <form id="entity-form" onSubmit={submit} className="form">
         <ErrorNote message={f.error} />
+        {isSeries && (
+          <div className="scope-picker" role="radiogroup" aria-label="O que alterar">
+            <label className={scope === "one" ? "on" : ""}>
+              <input type="radio" name="scope" checked={scope === "one"} onChange={() => changeScope("one")} />
+              Só {formatDay(localDate(event!.occurrenceStart ?? event!.startAt), { weekday: "short", day: "numeric", month: "short" })}
+            </label>
+            <label className={scope === "series" ? "on" : ""}>
+              <input type="radio" name="scope" checked={scope === "series"} onChange={() => changeScope("series")} />
+              Toda a série
+            </label>
+          </div>
+        )}
         <Field label="Título" error={f.issues.title}>
           <input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={200} />
         </Field>
         <div className="grid-2">
-          <Field label="Início" error={f.issues.startAt}>
+          <Field label={isSeries && scope === "series" ? "Primeiro dia" : "Início"} error={f.issues.startAt}>
             <input type="date" value={day} onChange={(e) => changeDay(e.target.value)} required />
           </Field>
           <Field label="Hora de início">
@@ -450,19 +633,37 @@ export function EventForm({ event, date, onClose, onSaved }: { event?: CalendarE
             <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} required />
           </Field>
         </div>
-        <Field label="Projeto">
-          <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            <option value="">Sem projeto</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.title}</option>
-            ))}
-          </select>
-        </Field>
+        {!editingOne && !(event?.seriesId && !isSeries) && (
+          event?.customRepeat ? (
+            <p className="muted small">Repetição personalizada criada no Google Agenda. Para mudar a regra, edite lá; o resto dá para mudar aqui.</p>
+          ) : (
+            <RepeatEditor value={repeat} onChange={setRepeat} day={day} error={f.issues["repeat.until"] ?? f.issues["repeat.count"] ?? f.issues.repeat} />
+          )
+        )}
+        {event?.seriesId && !isSeries && <p className="muted small">Este dia foi alterado à parte da série. Excluir aqui tira só este dia.</p>}
+        <div className="grid-2">
+          <Field label="Lembrete" hint="Pelo Google Agenda e pelo Telegram">
+            <select value={reminder} onChange={(e) => setReminder(e.target.value)}>
+              {REMINDERS.map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+              {reminder && !REMINDERS.some(([v]) => v === reminder) && <option value={reminder}>{reminder} minutos antes</option>}
+            </select>
+          </Field>
+          <Field label="Projeto">
+            <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <option value="">Sem projeto</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.title}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
         <Field label="Descrição">
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
         </Field>
         <p className="muted small">
-          Horários no fuso {useApp().me.workspace.timezone}.
+          Horários no fuso {me.workspace.timezone}.
           {event?.syncStatus === "synced" && " Sincronizado com o Google Agenda."}
           {event?.syncStatus === "pending" && " Aguardando envio ao Google Agenda."}
           {event?.syncStatus === "error" && " O último envio ao Google falhou; salvar de novo tenta outra vez."}

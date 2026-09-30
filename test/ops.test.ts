@@ -48,7 +48,7 @@ describe("backup", () => {
     const bytes = new Uint8Array(await object!.arrayBuffer());
     expect(new TextDecoder().decode(bytes)).not.toContain("acentuação");
     const snapshot = await unpackSnapshot(bytes, KEY);
-    expect(snapshot.migrations.at(-1)).toMatch(/operacao/);
+    expect(snapshot.migrations).toContain("0004_operacao.sql");
     expect(snapshot.tables.tasks.columns).toContain("title");
   });
 

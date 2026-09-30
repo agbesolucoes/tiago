@@ -4,7 +4,10 @@ import { Hono, type Context } from "hono";
 import { enqueueStatements, processJobs } from "../integrations/calendar-sync";
 import { attachments, auditLog, events, ideas, memberships, users, ideaStatuses, ideaTags, priorities, projects, projectStatuses, tags, tasks, taskStatuses } from "../db/schema";
 import { newId } from "../lib/crypto";
-import { localDayRange } from "../lib/time";
+import { eventView, listOccurrences, type EventRow } from "../lib/occurrences";
+import { isOccurrence, seriesEnd, toRRule } from "../lib/recurrence";
+import { localDayRange, toIso } from "../lib/time";
+import type { z } from "zod";
 import { requireMember, requireRole, type AppEnv, type RequestContext } from "./context";
 import {
   auditInsert,
@@ -17,6 +20,7 @@ import {
   toUtc,
   ValidationError,
 } from "./helpers";
+import { deleteEventStatements } from "./event-delete";
 import { registerNotes } from "./notes";
 import * as s from "./schemas";
 
@@ -332,53 +336,66 @@ async function withTags(ctx: RequestContext, rows: (typeof ideas.$inferSelect)[]
 
 // ---------- Compromissos ----------
 
+const YEAR = 365 * 86_400_000;
+
+/** Lista a agenda com as séries expandidas. Sem intervalo, cobre um ano para trás e um para frente. */
 api.get("/events", async (c) => {
   const ctx = c.get("ctx");
-  const from = toUtc(ctx, c.req.query("from"), "from");
-  const to = toUtc(ctx, c.req.query("to"), "to");
-  const rows = await ctx.db
-    .select()
-    .from(events)
-    .where(
-      and(
-        eq(events.workspaceId, ctx.workspaceId),
-        // Sobreposição com o intervalo pedido.
-        from != null ? gte(events.endAt, from) : undefined,
-        to != null ? lt(events.startAt, to) : undefined,
-        matches(c.req.query("q"), events.title, events.description),
-      ),
-    )
-    .orderBy(asc(events.startAt))
-    .limit(LIST_LIMIT);
-  return c.json(rows.map(serialize));
+  const now = Date.now();
+  const from = toUtc(ctx, c.req.query("from"), "from") ?? now - YEAR;
+  const to = toUtc(ctx, c.req.query("to"), "to") ?? now + YEAR;
+  if (to - from > 2 * YEAR + 86_400_000) throw new ValidationError([{ path: "to", message: "intervalo máximo de 2 anos" }]);
+  const rows = await listOccurrences(ctx.db, ctx.workspaceId, from, to, matches(c.req.query("q"), events.title, events.description));
+  return c.json(rows.slice(0, LIST_LIMIT).map(eventView));
 });
+
+/** Regra de repetição e fim da série a partir da escolha da tela. */
+function seriesFields(ctx: RequestContext, repeat: z.infer<typeof s.repeat> | null | undefined, startAt: number, endAt: number, allDay: boolean) {
+  if (!repeat) return { recurrence: null, recurrenceEndsAt: null };
+  if (repeat.until) {
+    const until = toUtc(ctx, `${repeat.until}T23:59`, "repeat.until")!;
+    if (until < startAt) throw new ValidationError([{ path: "repeat.until", message: "a data final é antes do primeiro dia" }]);
+  }
+  const recurrence = toRRule(repeat, startAt, ctx.timezone, allDay);
+  return { recurrence, recurrenceEndsAt: seriesEnd({ startAt, endAt, timezone: ctx.timezone, allDay, recurrence }) };
+}
 
 api.post("/events", async (c) => {
   const ctx = c.get("ctx");
-  const body = await parseBody(c, s.eventCreate);
+  const { repeat, ...body } = await parseBody(c, s.eventCreate);
   await ensureRef(ctx, projects, body.projectId, "projectId");
   const startAt = toUtc(ctx, body.startAt, "startAt")!;
   const endAt = toUtc(ctx, body.endAt, "endAt")!;
   checkRange(startAt, endAt);
-  const values = { ...body, startAt, endAt, timezone: ctx.timezone };
+  const values = { ...body, startAt, endAt, timezone: ctx.timezone, ...seriesFields(ctx, repeat, startAt, endAt, !!body.allDay) };
   const row = { id: newId(), workspaceId: ctx.workspaceId, createdBy: ctx.userId, ...values };
   const sync = await enqueueStatements(ctx.db, ctx.workspaceId, { id: row.id, calendarId: null, remoteId: null }, "event.upsert");
   await ctx.db.batch([ctx.db.insert(events).values(row), auditInsert(ctx, "event", row.id, "create", null, values), ...sync]);
   if (sync.length) pushSoon(c);
-  return c.json({ ...serialize(await getEvent(ctx, row.id)), conflicts: await conflicts(ctx, row.id, startAt, endAt) }, 201);
+  return c.json({ ...eventView(await getEvent(ctx, row.id)), conflicts: await conflicts(ctx, row.id, startAt, endAt) }, 201);
 });
 
-api.get("/events/:id", async (c) => c.json(serialize(await getEvent(c.get("ctx"), c.req.param("id")))));
+api.get("/events/:id", async (c) => c.json(eventView(await getEvent(c.get("ctx"), c.req.param("id")))));
 
+/** Edita o compromisso ou, numa série, todas as ocorrências. */
 api.patch("/events/:id", async (c) => {
   const ctx = c.get("ctx");
   const before = await getEvent(ctx, c.req.param("id"));
-  const body = await parseBody(c, s.eventUpdate);
+  const { repeat, ...body } = await parseBody(c, s.eventUpdate);
+  if (repeat && before.seriesId) throw new ValidationError([{ path: "repeat", message: "uma ocorrência avulsa não pode repetir" }]);
   await ensureRef(ctx, projects, body.projectId, "projectId");
   const startAt = body.startAt !== undefined ? toUtc(ctx, body.startAt, "startAt")! : before.startAt;
   const endAt = body.endAt !== undefined ? toUtc(ctx, body.endAt, "endAt")! : before.endAt;
+  const allDay = body.allDay ?? before.allDay;
   checkRange(startAt, endAt);
-  const values = { ...body, startAt, endAt };
+  let series = {};
+  if (repeat !== undefined) series = seriesFields(ctx, repeat, startAt, endAt, allDay);
+  else if (before.recurrence && (startAt !== before.startAt || endAt !== before.endAt || allDay !== before.allDay)) {
+    series = { recurrenceEndsAt: seriesEnd({ startAt, endAt, timezone: before.timezone, allDay, recurrence: before.recurrence }) };
+  }
+  // Mudar o horário da série invalida as datas excluídas, que apontam para o horário antigo.
+  const exdates = before.recurrence && startAt !== before.startAt ? { exdates: null } : {};
+  const values = { ...body, startAt, endAt, ...series, ...exdates };
   const sync = await enqueueStatements(ctx.db, ctx.workspaceId, before, "event.upsert");
   await ctx.db.batch([
     ctx.db
@@ -389,21 +406,89 @@ api.patch("/events/:id", async (c) => {
     ...sync,
   ]);
   if (sync.length) pushSoon(c);
-  return c.json({ ...serialize(await getEvent(ctx, before.id)), conflicts: await conflicts(ctx, before.id, startAt, endAt) });
+  return c.json({ ...eventView(await getEvent(ctx, before.id)), conflicts: await conflicts(ctx, before.id, startAt, endAt) });
 });
 
+/** Início original de uma ocorrência válida da série. */
+function occurrenceOf(ctx: RequestContext, master: EventRow, value: string) {
+  if (!master.recurrence) throw new ValidationError([{ path: "occurrenceStart", message: "o compromisso não se repete" }]);
+  const start = toUtc(ctx, value, "occurrenceStart")!;
+  if (!isOccurrence({ ...master, recurrence: master.recurrence }, start)) throw new ValidationError([{ path: "occurrenceStart", message: "essa data não faz parte da série" }]);
+  return start;
+}
+
+/** Tira uma ocorrência da série (a série continua). */
+api.post("/events/:id/occurrences/skip", async (c) => {
+  const ctx = c.get("ctx");
+  requireRole(ctx, "owner", "admin");
+  const master = await getEvent(ctx, c.req.param("id"));
+  const body = await parseBody(c, s.occurrenceSkip);
+  const start = occurrenceOf(ctx, master, body.occurrenceStart);
+  const exdates = [...new Set([...(master.exdates ?? []), start])].sort((a, b) => a - b);
+  const sync = await enqueueStatements(ctx.db, ctx.workspaceId, master, "event.upsert");
+  await ctx.db.batch([
+    ctx.db.update(events).set({ exdates, updatedAt: Date.now() }).where(and(eq(events.id, master.id), eq(events.workspaceId, ctx.workspaceId))),
+    auditInsert(ctx, "event", master.id, "update", { exdates: master.exdates }, { exdates, skipped: start }),
+    ...sync,
+  ]);
+  if (sync.length) pushSoon(c);
+  return c.json(eventView(await getEvent(ctx, master.id)));
+});
+
+/**
+ * Altera só uma ocorrência: ela vira um compromisso próprio ligado à série (seriesId) e sai da
+ * repetição (data excluída). No Google aparece como um evento avulso naquele dia.
+ */
+api.post("/events/:id/occurrences/detach", async (c) => {
+  const ctx = c.get("ctx");
+  const master = await getEvent(ctx, c.req.param("id"));
+  const { occurrenceStart, ...body } = await parseBody(c, s.occurrenceDetach);
+  const original = occurrenceOf(ctx, master, occurrenceStart);
+  await ensureRef(ctx, projects, body.projectId, "projectId");
+  const duration = master.endAt - master.startAt;
+  const startAt = body.startAt !== undefined ? toUtc(ctx, body.startAt, "startAt")! : original;
+  const endAt = body.endAt !== undefined ? toUtc(ctx, body.endAt, "endAt")! : startAt + duration;
+  checkRange(startAt, endAt);
+  const row = {
+    id: newId(),
+    workspaceId: ctx.workspaceId,
+    title: body.title ?? master.title,
+    description: body.description !== undefined ? body.description : master.description,
+    projectId: body.projectId !== undefined ? body.projectId : master.projectId,
+    reminderMinutes: body.reminderMinutes !== undefined ? body.reminderMinutes : master.reminderMinutes,
+    startAt,
+    endAt,
+    allDay: master.allDay,
+    timezone: master.timezone,
+    calendarId: master.calendarId,
+    seriesId: master.id,
+    originalStartAt: original,
+    createdBy: ctx.userId,
+  };
+  const exdates = [...new Set([...(master.exdates ?? []), original])].sort((a, b) => a - b);
+  const [syncMaster, syncOne] = await Promise.all([
+    enqueueStatements(ctx.db, ctx.workspaceId, master, "event.upsert"),
+    enqueueStatements(ctx.db, ctx.workspaceId, { id: row.id, calendarId: master.calendarId, remoteId: null }, "event.upsert"),
+  ]);
+  await ctx.db.batch([
+    ctx.db.insert(events).values(row),
+    ctx.db.update(events).set({ exdates, updatedAt: Date.now() }).where(and(eq(events.id, master.id), eq(events.workspaceId, ctx.workspaceId))),
+    auditInsert(ctx, "event", row.id, "create", null, { ...row, via: "ocorrência" }),
+    ...syncMaster,
+    ...syncOne,
+  ]);
+  if (syncMaster.length || syncOne.length) pushSoon(c);
+  return c.json({ ...eventView(await getEvent(ctx, row.id)), conflicts: await conflicts(ctx, row.id, startAt, endAt) }, 201);
+});
+
+/** Exclui o compromisso; numa série, exclui a série inteira. */
 api.delete("/events/:id", async (c) => {
   const ctx = c.get("ctx");
   requireRole(ctx, "owner", "admin");
   const before = await getEvent(ctx, c.req.param("id"));
-  const sync = await enqueueStatements(ctx.db, ctx.workspaceId, before, "event.delete");
-  await ctx.db.batch([
-    ctx.db.delete(events).where(and(eq(events.id, before.id), eq(events.workspaceId, ctx.workspaceId))),
-    auditInsert(ctx, "event", before.id, "delete", before, null),
-    ctx.db.delete(attachments).where(and(eq(attachments.workspaceId, ctx.workspaceId), eq(attachments.parentKind, "event"), eq(attachments.parentId, before.id))),
-    ...sync,
-  ]);
-  if (sync.length) pushSoon(c);
+  const stmts = await deleteEventStatements(ctx, before);
+  await ctx.db.batch(stmts as [any, ...any[]]);
+  if (stmts.length > 3) pushSoon(c);
   return c.body(null, 204);
 });
 
@@ -422,13 +507,12 @@ function checkRange(startAt: number, endAt: number) {
   if (endAt < startAt) throw new ValidationError([{ path: "endAt", message: "término antes do início" }]);
 }
 
+/** Compromissos (e ocorrências) que se sobrepõem ao horário, fora a própria série. */
 async function conflicts(ctx: RequestContext, id: string, startAt: number, endAt: number) {
-  const rows = await ctx.db
-    .select({ id: events.id, title: events.title, startAt: events.startAt, endAt: events.endAt })
-    .from(events)
-    .where(and(eq(events.workspaceId, ctx.workspaceId), ne(events.id, id), lt(events.startAt, endAt), gt(events.endAt, startAt)))
-    .orderBy(asc(events.startAt));
-  return rows.map(serialize);
+  const rows = await listOccurrences(ctx.db, ctx.workspaceId, startAt, Math.max(endAt, startAt + 1));
+  return rows
+    .filter((e) => e.id !== id && e.seriesId !== id && e.startAt < endAt && e.endAt > startAt)
+    .map((e) => ({ id: e.id, title: e.title, startAt: toIso(e.startAt), endAt: toIso(e.endAt) }));
 }
 
 async function getEvent(ctx: RequestContext, id: string) {
@@ -456,11 +540,11 @@ api.get("/dashboard", async (c) => {
   const now = Date.now();
   const [dayStart, dayEnd] = localDayRange(now, ctx.timezone);
   const count = sql<number>`count(*)`;
-  const [byStatus, overdue, dueToday, eventsToday, newIdeas, activeProjects] = await ctx.db.batch([
+  const eventsToday = await listOccurrences(ctx.db, ctx.workspaceId, dayStart, dayEnd);
+  const [byStatus, overdue, dueToday, newIdeas, activeProjects] = await ctx.db.batch([
     ctx.db.select({ status: tasks.status, n: count }).from(tasks).where(eq(tasks.workspaceId, ctx.workspaceId)).groupBy(tasks.status),
     ctx.db.select({ n: count }).from(tasks).where(and(eq(tasks.workspaceId, ctx.workspaceId), ne(tasks.status, "done"), lt(tasks.dueAt, now))),
     ctx.db.select({ n: count }).from(tasks).where(and(eq(tasks.workspaceId, ctx.workspaceId), ne(tasks.status, "done"), gte(tasks.dueAt, dayStart), lt(tasks.dueAt, dayEnd))),
-    ctx.db.select().from(events).where(and(eq(events.workspaceId, ctx.workspaceId), lt(events.startAt, dayEnd), gte(events.endAt, dayStart))).orderBy(asc(events.startAt)),
     ctx.db.select({ n: count }).from(ideas).where(and(eq(ideas.workspaceId, ctx.workspaceId), eq(ideas.status, "new"))),
     ctx.db.select({ n: count }).from(projects).where(and(eq(projects.workspaceId, ctx.workspaceId), eq(projects.status, "active"))),
   ]);
@@ -468,7 +552,7 @@ api.get("/dashboard", async (c) => {
     tasksByStatus: Object.fromEntries(byStatus.map((r) => [r.status, r.n])),
     overdueTasks: overdue[0].n,
     tasksDueToday: dueToday[0].n,
-    eventsToday: eventsToday.map(serialize),
+    eventsToday: eventsToday.map(eventView),
     newIdeas: newIdeas[0].n,
     activeProjects: activeProjects[0].n,
   });
@@ -484,7 +568,7 @@ api.get("/search", async (c) => {
     ctx.db.select().from(ideas).where(and(eq(ideas.workspaceId, ctx.workspaceId), matches(q, ideas.title, ideas.description))).limit(20),
     ctx.db.select().from(events).where(and(eq(events.workspaceId, ctx.workspaceId), matches(q, events.title, events.description))).limit(20),
   ]);
-  return c.json({ tasks: t.map(serialize), projects: p.map(serialize), ideas: i.map(serialize), events: e.map(serialize) });
+  return c.json({ tasks: t.map(serialize), projects: p.map(serialize), ideas: i.map(serialize), events: e.map(eventView) });
 });
 
 /** Valores anteriores só dos campos alterados, para a auditoria. */
