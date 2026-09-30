@@ -17,6 +17,8 @@ import {
   type Task,
   type TaskStatus,
 } from "../types";
+import { Attachments } from "./Attachments";
+import { MeetingNotes } from "./MeetingNotes";
 import { ErrorNote, Field, Modal } from "./ui";
 
 type Issues = Record<string, string>;
@@ -166,6 +168,8 @@ export function TaskForm({ task, defaults, onClose, onSaved }: { task?: Task; de
           </Field>
         </div>
         {task?.sourceIdeaId && <p className="muted small">Criada a partir de uma ideia.</p>}
+        {task?.sourceEventId && <p className="muted small">Criada a partir de uma decisão de reunião.</p>}
+        {task && <Attachments kind="task" parentId={task.id} />}
       </form>
     </Modal>
   );
@@ -224,6 +228,7 @@ export function ProjectForm({ project, onClose, onSaved }: { project?: Project; 
             </select>
           </Field>
         </div>
+        {project && <Attachments kind="project" parentId={project.id} />}
       </form>
     </Modal>
   );
@@ -295,6 +300,7 @@ export function IdeaForm({ idea, onClose, onSaved }: { idea?: Idea; onClose: () 
             <input value={tags} onChange={(e) => setTags(e.target.value)} />
           </Field>
         </div>
+        {idea && <Attachments kind="idea" parentId={idea.id} />}
       </form>
     </Modal>
   );
@@ -368,6 +374,7 @@ export function EventForm({ event, date, onClose, onSaved }: { event?: CalendarE
   const [end, setEnd] = useState(event ? localTime(event.endAt) : "10:00");
   const [projectId, setProjectId] = useState(event?.projectId ?? "");
   const f = useSubmit();
+  const [notesOpen, setNotesOpen] = useState(false);
   const onDelete = useConfirmDelete(event && canDelete ? `/api/events/${event.id}` : null, "o compromisso", () => {
     onSaved([]);
     onClose();
@@ -403,8 +410,27 @@ export function EventForm({ event, date, onClose, onSaved }: { event?: CalendarE
     });
   };
 
+  if (notesOpen && event) return <MeetingNotes event={event} onClose={() => setNotesOpen(false)} />;
+
   return (
-    <Modal title={event ? "Editar compromisso" : "Novo compromisso"} onClose={onClose} footer={<Footer saving={f.saving} onClose={onClose} onDelete={onDelete} />}>
+    <Modal
+      title={event ? "Editar compromisso" : "Novo compromisso"}
+      onClose={onClose}
+      footer={
+        <Footer
+          saving={f.saving}
+          onClose={onClose}
+          onDelete={onDelete}
+          extra={
+            event && (
+              <button type="button" className="btn btn-secondary" onClick={() => setNotesOpen(true)} disabled={f.saving}>
+                Registro da reunião
+              </button>
+            )
+          }
+        />
+      }
+    >
       <form id="entity-form" onSubmit={submit} className="form">
         <ErrorNote message={f.error} />
         <Field label="Título" error={f.issues.title}>
@@ -441,6 +467,7 @@ export function EventForm({ event, date, onClose, onSaved }: { event?: CalendarE
           {event?.syncStatus === "pending" && " Aguardando envio ao Google Agenda."}
           {event?.syncStatus === "error" && " O último envio ao Google falhou; salvar de novo tenta outra vez."}
         </p>
+        {event && <Attachments kind="event" parentId={event.id} />}
       </form>
     </Modal>
   );

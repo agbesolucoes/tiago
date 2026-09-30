@@ -342,8 +342,8 @@ describe("conexão OAuth do Google Agenda", () => {
     const { url, cookie, tx } = await start(u);
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("prompt")).toBe("consent");
-    expect(url.searchParams.get("scope")).toBe(`openid email ${SCOPES.split(" ").slice(2).join(" ")}`);
-    expect(url.searchParams.get("scope")).not.toContain("drive");
+    expect(url.searchParams.get("scope")).toBe(`openid email ${SCOPES.split(" ").slice(2).join(" ")} https://www.googleapis.com/auth/drive.file`);
+    expect(url.searchParams.get("scope")).not.toMatch(/auth\/drive( |$)/);
     expect(url.searchParams.get("login_hint")).toBe(`${u.id}@exemplo.com`);
 
     grant(tx, SCOPES);

@@ -144,3 +144,76 @@ export async function revokeToken(token: string, fetcher: typeof fetch = googleF
     body: new URLSearchParams({ token }),
   }).catch(() => {});
 }
+
+// ---------- Drive (escopo drive.file: só arquivos criados pela Central ou escolhidos no Picker) ----------
+
+const DRIVE = "https://www.googleapis.com/drive/v3";
+const DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3";
+export const FOLDER_MIME = "application/vnd.google-apps.folder";
+const FILE_FIELDS = "id,name,mimeType,size,webViewLink,trashed,parents";
+
+export interface DriveFile {
+  id: string;
+  name: string;
+  mimeType?: string;
+  size?: string;
+  webViewLink?: string;
+  trashed?: boolean;
+  parents?: string[];
+}
+
+export class DriveClient {
+  constructor(
+    private accessToken: string,
+    private fetcher: typeof fetch = googleFetch.impl,
+  ) {}
+
+  private async call<T>(method: string, url: string, init: { body?: BodyInit; headers?: Record<string, string> } = {}): Promise<{ data: T; res: Response }> {
+    let res: Response;
+    try {
+      res = await this.fetcher(url, { method, headers: { authorization: `Bearer ${this.accessToken}`, ...init.headers }, body: init.body });
+    } catch (e) {
+      throw new GoogleError(0, "network", (e as Error).message);
+    }
+    if (!res.ok) throw await parseError(res);
+    // A abertura da sessão de upload responde 200 sem corpo.
+    const text = res.status === 204 ? "" : await res.text();
+    return { data: (text ? JSON.parse(text) : undefined) as T, res };
+  }
+
+  async getFile(id: string): Promise<DriveFile> {
+    return (await this.call<DriveFile>("GET", `${DRIVE}/files/${encodeURIComponent(id)}?fields=${FILE_FIELDS}`)).data;
+  }
+
+  async findFolder(name: string, parentId?: string): Promise<DriveFile | null> {
+    const q = [`mimeType='${FOLDER_MIME}'`, `name='${name.replace(/'/g, "\\'")}'`, "trashed=false", parentId ? `'${parentId}' in parents` : "'root' in parents"].join(" and ");
+    const params = new URLSearchParams({ q, fields: `files(${FILE_FIELDS})`, pageSize: "10", spaces: "drive" });
+    const { data } = await this.call<{ files?: DriveFile[] }>("GET", `${DRIVE}/files?${params}`);
+    return data.files?.[0] ?? null;
+  }
+
+  async createFolder(name: string, parentId?: string): Promise<DriveFile> {
+    const body = JSON.stringify({ name, mimeType: FOLDER_MIME, ...(parentId && { parents: [parentId] }) });
+    return (await this.call<DriveFile>("POST", `${DRIVE}/files?fields=${FILE_FIELDS}`, { body, headers: { "content-type": "application/json" } })).data;
+  }
+
+  /** Abre uma sessão de upload retomável e devolve a URL da sessão. */
+  async startUpload(meta: { name: string; parentId: string; mimeType: string; size: number }): Promise<string> {
+    const { res } = await this.call<unknown>("POST", `${DRIVE_UPLOAD}/files?uploadType=resumable&fields=${FILE_FIELDS}`, {
+      body: JSON.stringify({ name: meta.name, parents: [meta.parentId], mimeType: meta.mimeType }),
+      headers: {
+        "content-type": "application/json; charset=UTF-8",
+        "x-upload-content-type": meta.mimeType,
+        "x-upload-content-length": String(meta.size),
+      },
+    });
+    const location = res.headers.get("location");
+    if (!location) throw new GoogleError(502, "noUploadSession", "O Google não abriu a sessão de upload");
+    return location;
+  }
+
+  /** Envia o conteúdo em streaming para a sessão (sem guardar o arquivo no servidor). */
+  async upload(sessionUrl: string, body: ReadableStream | ArrayBuffer | Blob, size: number, mimeType: string): Promise<DriveFile> {
+    return (await this.call<DriveFile>("PUT", sessionUrl, { body: body as BodyInit, headers: { "content-type": mimeType, "content-length": String(size) } })).data;
+  }
+}

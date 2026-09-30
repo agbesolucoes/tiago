@@ -227,6 +227,8 @@ export const integrationAccounts = sqliteTable(
     accessTokenExpiresAt: integer(),
     /** Agenda que recebe os compromissos criados na Central. */
     defaultCalendarId: text(),
+    /** Pastas da Central no Drive: { root, project, event, idea, general } → id da pasta. */
+    driveFolders: text({ mode: "json" }).$type<Record<string, string>>(),
     status: text({ enum: integrationStatuses }).notNull().default("active"),
     lastError: text(),
     lastSyncAt: integer(),
@@ -279,3 +281,54 @@ export const syncJobs = sqliteTable(
   },
   (t) => [index("sync_jobs_due_idx").on(t.status, t.nextAttemptAt)],
 );
+
+// ---------- Drive e reuniões ----------
+
+export const attachmentParents = ["project", "task", "event", "idea", "general"] as const;
+
+/** Arquivo no Drive vinculado a um registro. A Central nunca altera o compartilhamento (ACL). */
+export const attachments = sqliteTable(
+  "attachments",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    parentKind: text({ enum: attachmentParents }).notNull(),
+    parentId: text(),
+    driveFileId: text().notNull(),
+    name: text().notNull(),
+    mimeType: text(),
+    size: integer(),
+    webViewLink: text(),
+    /** uploaded: enviado pela Central; linked: escolhido no Picker. */
+    origin: text({ enum: ["uploaded", "linked"] }).notNull(),
+    createdBy: text().references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    index("attachments_parent_idx").on(t.workspaceId, t.parentKind, t.parentId),
+    uniqueIndex("attachments_file_parent_idx").on(t.workspaceId, t.driveFileId, t.parentKind, t.parentId),
+  ],
+);
+
+export interface Decision {
+  id: string;
+  text: string;
+  taskId?: string | null;
+}
+
+/** Registro de reunião ligado a um compromisso: pauta, resumo e decisões. */
+export const meetingNotes = sqliteTable("meeting_notes", {
+  eventId: text()
+    .primaryKey()
+    .references(() => events.id, { onDelete: "cascade" }),
+  workspaceId: text()
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  agenda: text(),
+  summary: text(),
+  decisions: text({ mode: "json" }).$type<Decision[]>().notNull().default(sql`'[]'`),
+  updatedBy: text().references(() => users.id, { onDelete: "set null" }),
+  ...timestamps,
+});

@@ -3,7 +3,9 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { calendars, events, integrationAccounts, syncJobs } from "../db/schema";
 import { GoogleError, revokeToken } from "../integrations/google-client";
-import { jobCounts, refreshCalendarList, syncWorkspace } from "../integrations/calendar-sync";
+import { accessTokenFor, jobCounts, refreshCalendarList, syncWorkspace } from "../integrations/calendar-sync";
+import { driveEnabled } from "../integrations/drive";
+import type { Env } from "../env";
 import { decryptSecret } from "../lib/secret";
 import { requireMember, requireRole, type AppEnv, type RequestContext } from "./context";
 import { auditInsert, parseBody, ValidationError } from "./helpers";
@@ -19,7 +21,7 @@ async function getAccount(ctx: RequestContext) {
   });
 }
 
-async function status(ctx: RequestContext) {
+async function status(ctx: RequestContext, env: Env) {
   const account = await getAccount(ctx);
   if (!account) return { connected: false as const };
   const cals = await ctx.db
@@ -44,10 +46,13 @@ async function status(ctx: RequestContext) {
     calendars: cals.sort((a, b) => Number(b.primary) - Number(a.primary)),
     pendingJobs: counts.pending ?? 0,
     failedJobs: counts.failed ?? 0,
+    driveEnabled: driveEnabled(account),
+    driveFolderUrl: account.driveFolders?.root ? `https://drive.google.com/drive/folders/${account.driveFolders.root}` : null,
+    pickerEnabled: driveEnabled(account) && !!env.GOOGLE_PICKER_API_KEY && !!env.GOOGLE_PROJECT_NUMBER,
   };
 }
 
-integrations.get("/google", async (c) => c.json(await status(c.get("ctx"))));
+integrations.get("/google", async (c) => c.json(await status(c.get("ctx"), c.env)));
 
 const settings = z.strictObject({
   defaultCalendarId: z.string().min(1).nullable().optional(),
@@ -83,7 +88,7 @@ integrations.patch("/google", async (c) => {
   }
   stmts.push(auditInsert(ctx, "integration", account.id, "update", { defaultCalendarId: account.defaultCalendarId }, body));
   await ctx.db.batch(stmts as [any, ...any[]]);
-  return c.json(await status(ctx));
+  return c.json(await status(ctx, c.env));
 });
 
 integrations.post("/google/sync", async (c) => {
@@ -94,11 +99,26 @@ integrations.post("/google/sync", async (c) => {
   try {
     if (account.status === "active") await refreshCalendarList(deps, account);
     const result = await syncWorkspace(deps, ctx.workspaceId);
-    return c.json({ ...(await status(ctx)), result });
+    return c.json({ ...(await status(ctx, c.env)), result });
   } catch (e) {
     const message = e instanceof GoogleError ? e.message : "Falha ao sincronizar";
-    return c.json({ ...(await status(ctx)), error: message }, 502);
+    return c.json({ ...(await status(ctx, c.env)), error: message }, 502);
   }
+});
+
+/**
+ * Dados para abrir o Google Picker no navegador. O access token dura 1 hora e fica só na
+ * memória da página enquanto o seletor está aberto; o refresh token nunca sai do servidor.
+ */
+integrations.get("/google/picker", async (c) => {
+  const ctx = c.get("ctx");
+  const account = await getAccount(ctx);
+  if (!account || account.status !== "active" || !driveEnabled(account) || !c.env.GOOGLE_PICKER_API_KEY || !c.env.GOOGLE_PROJECT_NUMBER) {
+    return c.json({ error: "Seletor do Drive indisponível" }, 409);
+  }
+  const accessToken = await accessTokenFor({ db: ctx.db, env: c.env }, account);
+  c.header("cache-control", "no-store");
+  return c.json({ accessToken, apiKey: c.env.GOOGLE_PICKER_API_KEY, appId: c.env.GOOGLE_PROJECT_NUMBER, clientId: c.env.GOOGLE_CLIENT_ID });
 });
 
 /** Desconectar: revoga o token no Google, apaga a conta e desativa a fila. Os compromissos ficam. */

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { api } from "../api";
+import { Attachments } from "../components/Attachments";
 import { Icon } from "../components/Icon";
 import { Badge, ErrorNote, Loading, PageHeader } from "../components/ui";
 import { useApp, useResource } from "../state";
@@ -17,6 +18,9 @@ interface GoogleStatus {
   calendars?: { id: string; summary: string; primary: boolean; writable: boolean; selected: boolean }[];
   pendingJobs?: number;
   failedJobs?: number;
+  driveEnabled?: boolean;
+  driveFolderUrl?: string | null;
+  pickerEnabled?: boolean;
 }
 
 const notices: Record<string, { text: string; tone: "ok" | "error" }> = {
@@ -171,6 +175,42 @@ export function SettingsPage() {
           </>
         )}
       </section>
+
+      {data?.connected && (
+        <section className="card settings-section">
+          <header className="settings-head">
+            <div>
+              <h2>Google Drive</h2>
+              <p className="muted small">A Central só enxerga os arquivos que ela mesma criou ou que você escolher. O compartilhamento dos arquivos nunca é alterado.</p>
+            </div>
+            <Badge tone={data.driveEnabled ? "ok" : "warn"}>{data.driveEnabled ? "Autorizado" : "Falta autorizar"}</Badge>
+          </header>
+          {data.driveEnabled ? (
+            <>
+              <div className="settings-actions">
+                {data.driveFolderUrl ? (
+                  <a className="btn btn-ghost" href={data.driveFolderUrl} target="_blank" rel="noreferrer">
+                    <Icon name="drive" size={16} /> Abrir a pasta da Central
+                  </a>
+                ) : (
+                  <button type="button" className="btn btn-ghost" onClick={() => run("folders", async () => { await api.post("/api/attachments/folders", {}); return api.get<GoogleStatus>("/api/integrations/google"); })} disabled={!!busy}>
+                    <Icon name="drive" size={16} /> Criar a pasta da Central
+                  </button>
+                )}
+              </div>
+              <Attachments kind="general" parentId={null} />
+            </>
+          ) : (
+            canDelete && (
+              <div className="settings-actions">
+                <a className="btn btn-secondary" href="/integrations/google/connect">
+                  Autorizar o Drive
+                </a>
+              </div>
+            )
+          )}
+        </section>
+      )}
 
       <section className="card settings-section">
         <header className="settings-head">

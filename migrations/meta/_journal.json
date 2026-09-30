@@ -15,6 +15,13 @@
       "when": 1790771294533,
       "tag": "0001_google_agenda",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790772058659,
+      "tag": "0002_drive_reunioes",
+      "breakpoints": true
     }
   ]
 }

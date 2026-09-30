@@ -60,9 +60,18 @@ Em **Configurações**, o dono ou um administrador conecta a conta Google (autor
 
 O passo a passo das credenciais está em [docs/configurar-google-cloud.md](docs/configurar-google-cloud.md).
 
+## Google Drive e registros de reunião
+
+A mesma conexão Google pede também `drive.file`: a Central só enxerga arquivos que ela criou ou que alguém escolheu no seletor do Google, e nunca altera o compartilhamento deles. Contas conectadas antes desta etapa aparecem em Configurações com "Falta autorizar" até conectar de novo.
+
+- **Pastas:** na primeira vez, a Central cria no Drive `Central de Organização/` com `Projetos`, `Compromissos`, `Ideias` e `Documentos gerais`. Se alguém apagar uma pasta, ela é recriada no próximo envio.
+- **Anexos** em tarefas, projetos, compromissos, ideias e em Configurações (documentos gerais): `POST /api/attachments/upload?parentKind=&parentId=&name=` recebe o arquivo cru (até 100 MB) e repassa em streaming para um upload resumível do Drive, sem guardar nada no Worker. Exige o cabeçalho `x-central-upload: 1`. `POST /api/attachments/link` vincula um arquivo escolhido no seletor. Tirar um anexo desfaz só o vínculo; o arquivo fica no Drive.
+- **Seletor do Google (Picker):** aparece quando os segredos `GOOGLE_PICKER_API_KEY` e `GOOGLE_PROJECT_NUMBER` existem. O token de acesso vai para o navegador só na hora de abrir o seletor e não é guardado.
+- **Registro da reunião:** em cada compromisso, pauta, resumo e decisões (`GET/PUT /api/events/:id/notes`). `POST /api/events/:id/notes/decisions/:decisionId/task` transforma uma decisão em tarefa com o projeto do compromisso e `source_event_id`; cada decisão vira tarefa uma vez só.
+
 ## Publicar
 
 1. `wrangler d1 create central-organizacao` e copie o `database_id` para o `wrangler.jsonc`.
 2. Ajuste `APP_URL` e `ALLOWED_EMAILS` em `vars`.
-3. `wrangler secret put` para `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `TOKEN_ENCRYPTION_KEY` (veja [docs/configurar-google-cloud.md](docs/configurar-google-cloud.md)).
+3. `wrangler secret put` para `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `TOKEN_ENCRYPTION_KEY` (e, para o seletor do Drive, `GOOGLE_PICKER_API_KEY` e `GOOGLE_PROJECT_NUMBER`) (veja [docs/configurar-google-cloud.md](docs/configurar-google-cloud.md)).
 4. `npm run deploy` (build, migrations remotas e deploy).

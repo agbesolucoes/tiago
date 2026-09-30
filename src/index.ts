@@ -3,10 +3,11 @@ import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import { requireMember, requireRole, type AppEnv } from "./api/context";
+import { attachmentsApi } from "./api/attachments";
 import { integrations } from "./api/integrations";
 import { ValidationError } from "./api/helpers";
 import { api } from "./api/routes";
-import { AuthError, CALENDAR_REDIRECT_PATH, CALENDAR_SCOPES, exchangeCode, finishLogin, startAuthorization, startLogin, type LoginTransaction } from "./auth/google";
+import { AuthError, CALENDAR_REDIRECT_PATH, CALENDAR_SCOPES, DRIVE_SCOPE, exchangeCode, finishLogin, startAuthorization, startLogin, type LoginTransaction } from "./auth/google";
 import { AccessDenied, allowedEmails, createSession, deleteSession, SESSION_COOKIE, SESSION_TTL_MS, upsertUser } from "./auth/session";
 import { getDb } from "./db/client";
 import { auditLog, integrationAccounts, users } from "./db/schema";
@@ -112,6 +113,7 @@ app.get("/api/me", requireMember, async (c) => {
 });
 
 app.route("/api/integrations", integrations);
+app.route("/api/attachments", attachmentsApi);
 app.route("/api", api);
 
 // ---------- Conexão com o Google Agenda ----------
@@ -126,7 +128,7 @@ app.get("/integrations/google/connect", requireMember, async (c) => {
     clientId: c.env.GOOGLE_CLIENT_ID,
     appUrl: c.env.APP_URL,
     redirectPath: CALENDAR_REDIRECT_PATH,
-    scopes: CALENDAR_SCOPES,
+    scopes: [...CALENDAR_SCOPES, DRIVE_SCOPE],
     offline: true,
     loginHint: user?.email,
   });

@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gt, gte, inArray, lt, ne, or, sql, type SQL } from 
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Hono, type Context } from "hono";
 import { enqueueStatements, processJobs } from "../integrations/calendar-sync";
-import { auditLog, events, ideas, memberships, users, ideaStatuses, ideaTags, priorities, projects, projectStatuses, tags, tasks, taskStatuses } from "../db/schema";
+import { attachments, auditLog, events, ideas, memberships, users, ideaStatuses, ideaTags, priorities, projects, projectStatuses, tags, tasks, taskStatuses } from "../db/schema";
 import { newId } from "../lib/crypto";
 import { localDayRange } from "../lib/time";
 import { requireMember, requireRole, type AppEnv, type RequestContext } from "./context";
@@ -17,10 +17,12 @@ import {
   toUtc,
   ValidationError,
 } from "./helpers";
+import { registerNotes } from "./notes";
 import * as s from "./schemas";
 
 export const api = new Hono<AppEnv>();
 api.use("*", requireMember);
+registerNotes(api);
 
 const LIST_LIMIT = 500;
 
@@ -86,6 +88,7 @@ api.delete("/projects/:id", async (c) => {
   await ctx.db.batch([
     ctx.db.delete(projects).where(and(eq(projects.id, before.id), eq(projects.workspaceId, ctx.workspaceId))),
     auditInsert(ctx, "project", before.id, "delete", before, null),
+    ctx.db.delete(attachments).where(and(eq(attachments.workspaceId, ctx.workspaceId), eq(attachments.parentKind, "project"), eq(attachments.parentId, before.id))),
   ]);
   return c.body(null, 204);
 });
@@ -160,6 +163,7 @@ api.delete("/tasks/:id", async (c) => {
   await ctx.db.batch([
     ctx.db.delete(tasks).where(and(eq(tasks.id, before.id), eq(tasks.workspaceId, ctx.workspaceId))),
     auditInsert(ctx, "task", before.id, "delete", before, null),
+    ctx.db.delete(attachments).where(and(eq(attachments.workspaceId, ctx.workspaceId), eq(attachments.parentKind, "task"), eq(attachments.parentId, before.id))),
   ]);
   return c.body(null, 204);
 });
@@ -235,6 +239,7 @@ api.delete("/ideas/:id", async (c) => {
   await ctx.db.batch([
     ctx.db.delete(ideas).where(and(eq(ideas.id, before.id), eq(ideas.workspaceId, ctx.workspaceId))),
     auditInsert(ctx, "idea", before.id, "delete", before, null),
+    ctx.db.delete(attachments).where(and(eq(attachments.workspaceId, ctx.workspaceId), eq(attachments.parentKind, "idea"), eq(attachments.parentId, before.id))),
   ]);
   return c.body(null, 204);
 });
@@ -395,6 +400,7 @@ api.delete("/events/:id", async (c) => {
   await ctx.db.batch([
     ctx.db.delete(events).where(and(eq(events.id, before.id), eq(events.workspaceId, ctx.workspaceId))),
     auditInsert(ctx, "event", before.id, "delete", before, null),
+    ctx.db.delete(attachments).where(and(eq(attachments.workspaceId, ctx.workspaceId), eq(attachments.parentKind, "event"), eq(attachments.parentId, before.id))),
     ...sync,
   ]);
   if (sync.length) pushSoon(c);
