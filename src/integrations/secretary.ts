@@ -28,6 +28,9 @@ export function secretaryEnabled(env: Env) {
 // ---------- Formato da resposta ----------
 
 const priority = z.enum(priorities);
+// Na resposta do modelo a prioridade vem como texto livre (o formato estruturado não guarda enums) e é conferida em cleanProposal.
+const outPriority = z.string().describe('Uma destas: "low", "medium", "high" ou "urgent".');
+const toPriority = (p: string) => ((priorities as readonly string[]).includes(p.trim().toLowerCase()) ? (p.trim().toLowerCase() as (typeof priorities)[number]) : "medium");
 
 const proposalSchema = z.object({
   summary: z.string().describe("Resumo da reunião em 2 a 5 frases, em português."),
@@ -37,7 +40,7 @@ const proposalSchema = z.object({
         ref: z.string().describe("Identificador curto para as tarefas apontarem para este projeto novo, como p1, p2."),
         title: z.string(),
         description: z.string().nullable(),
-        priority,
+        priority: outPriority,
       }),
     )
     .describe("Projetos NOVOS. Só quando a ata trata de uma frente de trabalho com várias tarefas que não corresponde a nenhum projeto existente."),
@@ -45,7 +48,7 @@ const proposalSchema = z.object({
     z.object({
       title: z.string().describe("Ação concreta começando com verbo, até 120 caracteres."),
       description: z.string().nullable().describe("Contexto necessário para executar a tarefa sem reler a ata."),
-      priority,
+      priority: outPriority,
       assigneeId: z.string().nullable().describe("id do membro da Central, só quando o responsável citado é claramente essa pessoa."),
       assigneeName: z.string().nullable().describe("Nome do responsável como aparece na ata, mesmo que não seja membro."),
       dueDate: z.string().nullable().describe("Prazo no formato AAAA-MM-DD, só quando a ata indica um prazo."),
@@ -208,7 +211,7 @@ export function cleanProposal(raw: ProposalOutput, context: SecretaryContext): S
   const projectIds = new Set(context.projects.map((p) => p.id));
   const newProjects = raw.projects.slice(0, MAX_PROJECTS).flatMap((p, i) => {
     const title = cut(p.title, 200);
-    return title ? [{ ref: cut(p.ref, 20) ?? `p${i + 1}`, title, description: cut(p.description, 10_000), priority: p.priority }] : [];
+    return title ? [{ ref: cut(p.ref, 20) ?? `p${i + 1}`, title, description: cut(p.description, 10_000), priority: toPriority(p.priority) }] : [];
   });
   const refs = new Set(newProjects.map((p) => p.ref));
   return {
@@ -222,7 +225,7 @@ export function cleanProposal(raw: ProposalOutput, context: SecretaryContext): S
         {
           title,
           description: cut(t.description, 10_000),
-          priority: t.priority,
+          priority: toPriority(t.priority),
           assigneeId: t.assigneeId && memberIds.has(t.assigneeId) ? t.assigneeId : null,
           assigneeName: cut(t.assigneeName, 120),
           dueDate: t.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(t.dueDate) && parseDateTime(t.dueDate, context.timezone) !== null ? t.dueDate : null,

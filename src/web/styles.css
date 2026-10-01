@@ -486,3 +486,54 @@ button, input, select, textarea { font: inherit; color: inherit; }
 @media (max-width: 640px) {
   .history li { flex-direction: column; gap: 0.1rem; }
 }
+
+/* ---------- Secretária ---------- */
+.secretary { display: flex; flex-direction: column; gap: 1rem; max-width: 900px; }
+.section-title { font-size: 1.02rem; font-weight: 650; margin: 0 0 0.2rem; }
+.secretary-off { display: flex; gap: 0.75rem; padding: 1rem 1.25rem; align-items: flex-start; color: var(--text); }
+.secretary-off p { margin: 0.25rem 0 0; }
+.secretary-input { padding: 1.25rem; }
+.secretary-input textarea { width: 100%; }
+.secretary-meeting { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin: 0; background: var(--accent-soft); color: var(--accent); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); }
+.secretary-file { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.secretary-chip { display: inline-flex; align-items: center; gap: 0.35rem; max-width: 100%; padding: 0.25rem 0.25rem 0.25rem 0.6rem; color: var(--text); }
+.secretary-draft { padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; }
+.secretary-draft-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.secretary-draft-head h2 { overflow-wrap: anywhere; }
+.secretary-draft .loading { justify-content: flex-start; padding: 0.5rem 0; }
+.secretary-review { display: flex; flex-direction: column; gap: 1.1rem; }
+.secretary-sub { font-size: 0.9rem; font-weight: 650; margin: 0 0 0.45rem; display: flex; align-items: center; gap: 0.35rem; }
+.secretary-summary { margin: 0; white-space: pre-wrap; }
+.secretary-notes { background: var(--surface-2); border-radius: var(--radius-sm); padding: 0.75rem 1rem; }
+.secretary-notes ul { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.92rem; }
+.secretary-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.secretary-item { display: flex; gap: 0.75rem; align-items: flex-start; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem; }
+.secretary-item > input[type="checkbox"] { width: 18px; height: 18px; margin-top: 0.55rem; flex-shrink: 0; }
+.secretary-item.off { opacity: 0.55; }
+.secretary-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.secretary-fields > input { width: 100%; }
+.secretary-title { font-weight: 600; }
+.secretary-fields p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.secretary-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; }
+.secretary-meta label { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.secretary-meta select, .secretary-meta input { width: 100%; min-width: 0; }
+.secretary-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.secretary-recent { padding: 1.25rem; }
+.secretary-recent ul { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; }
+.secretary-recent-item {
+  width: 100%; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.75rem; text-align: left;
+  border: 0; border-bottom: 1px solid var(--border); background: none; padding: 0.6rem 0.25rem; font: inherit; color: inherit; cursor: pointer;
+}
+.secretary-recent li:last-child .secretary-recent-item { border-bottom: 0; }
+.secretary-recent-item:hover, .secretary-recent-item.current { background: var(--surface-2); }
+.secretary-recent-name { display: flex; align-items: center; gap: 0.4rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.secretary-instructions { padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.secretary-instructions summary { cursor: pointer; font-weight: 650; }
+.secretary-instructions[open] { gap: 0.75rem; }
+.secretary-instructions textarea { width: 100%; margin: 0.6rem 0; }
+@media (max-width: 640px) {
+  .secretary-meta { grid-template-columns: 1fr 1fr; }
+  .secretary-recent-item { grid-template-columns: 1fr auto; }
+  .secretary-recent-item .muted { display: none; }
+  .bottom-nav a span { font-size: 0.64rem; }
+}
