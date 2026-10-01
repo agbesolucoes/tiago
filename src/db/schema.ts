@@ -43,6 +43,8 @@ export const workspaces = sqliteTable("workspaces", {
   id: text().primaryKey(),
   name: text().notNull(),
   timezone: text().notNull().default("America/Sao_Paulo"),
+  /** Instruções extras da secretária (estilo, regras da casa), escritas pelo dono. */
+  secretaryInstructions: text(),
   ...timestamps,
 });
 
@@ -416,7 +418,7 @@ export const telegramLinkCodes = sqliteTable("telegram_link_codes", {
   createdAt: now(),
 });
 
-export const confirmationKinds = ["event.create", "event.delete", "task.complete"] as const;
+export const confirmationKinds = ["event.create", "event.delete", "task.complete", "secretary.apply"] as const;
 
 /** Ação pedida pelo bot que só é gravada depois do "Confirmar". */
 export const pendingConfirmations = sqliteTable(
@@ -481,3 +483,52 @@ export const reminderLog = sqliteTable("reminder_log", {
   key: text().primaryKey(),
   sentAt: now(),
 });
+
+// ---------- Secretária ----------
+
+export const secretaryStatuses = ["analyzing", "ready", "failed", "applied", "discarded"] as const;
+
+/** Proposta da secretária: o que ela leu na ata e sugere criar. Nada vira tarefa sem confirmação. */
+export interface SecretaryProposal {
+  summary: string;
+  projects: { ref: string; title: string; description: string | null; priority: (typeof priorities)[number] }[];
+  tasks: {
+    title: string;
+    description: string | null;
+    priority: (typeof priorities)[number];
+    assigneeId: string | null;
+    assigneeName: string | null;
+    /** AAAA-MM-DD, no fuso do workspace. */
+    dueDate: string | null;
+    projectId: string | null;
+    projectRef: string | null;
+    checklist: string[];
+  }[];
+  notes: string[];
+}
+
+export const secretaryDrafts = sqliteTable(
+  "secretary_drafts",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    source: text({ enum: ["web", "telegram"] }).notNull(),
+    /** Nome do arquivo ou "Texto colado". */
+    sourceName: text().notNull(),
+    /** Reunião de origem: as tarefas criadas ficam ligadas a ela. */
+    eventId: text().references(() => events.id, { onDelete: "set null" }),
+    /** Texto lido da ata (vazio para PDF, que vai direto para a análise). */
+    inputText: text(),
+    status: text({ enum: secretaryStatuses }).notNull().default("analyzing"),
+    proposal: text({ mode: "json" }).$type<SecretaryProposal>(),
+    error: text(),
+    result: text({ mode: "json" }).$type<{ projectIds: string[]; taskIds: string[] }>(),
+    ...timestamps,
+  },
+  (t) => [index("secretary_drafts_ws_idx").on(t.workspaceId, t.createdAt)],
+);

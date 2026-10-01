@@ -257,7 +257,7 @@ app.post("/integrations/telegram/webhook", async (c) => {
   if (!(await sameSecret(secret, c.env.TELEGRAM_WEBHOOK_SECRET!))) return c.body(null, 401);
   const update = (await c.req.json().catch(() => null)) as TgUpdate | null;
   if (!update || typeof update.update_id !== "number") return c.json({ ok: true });
-  await handleUpdate({ db: getDb(c.env.DB), env: c.env }, update);
+  await handleUpdate({ db: getDb(c.env.DB), env: c.env, defer: (job) => c.executionCtx.waitUntil(job) }, update);
   return c.json({ ok: true });
 });
 

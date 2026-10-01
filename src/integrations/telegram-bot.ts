@@ -4,7 +4,7 @@
 import { and, asc, desc, eq, gte, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import type { RequestContext } from "../api/context";
 import { deleteEventStatements } from "../api/event-delete";
-import { auditInsert, likePattern } from "../api/helpers";
+import { auditInsert, likePattern, ValidationError } from "../api/helpers";
 import type { Db } from "../db/client";
 import {
   events,
@@ -12,6 +12,7 @@ import {
   memberships,
   pendingConfirmations,
   processedUpdates,
+  secretaryDrafts,
   syncJobs,
   tasks,
   telegramLinkCodes,
@@ -25,12 +26,15 @@ import { addMinutes, parseWhen } from "../lib/nl-date";
 import { listOccurrences } from "../lib/occurrences";
 import { localDayRange, parseDateTime } from "../lib/time";
 import { enqueueStatements, processJobs } from "./calendar-sync";
+import { applyProposal, createDraft, DraftConflict, MinutesError, proposalAsBody, readMinutes, runAnalysis, secretaryEnabled, type SecretaryInput } from "./secretary";
 import { TelegramClient, type InlineButton, type TgMessage, type TgUpdate } from "./telegram-client";
 
 export interface BotDeps {
   db: Db;
   env: Env;
   now?: () => number;
+  /** Trabalho demorado (análise da ata) roda depois da resposta ao Telegram. Sem isso, roda na hora. */
+  defer?: (job: Promise<unknown>) => void;
 }
 
 export const LINK_CODE_TTL = 15 * 60_000;
@@ -81,6 +85,7 @@ const HELP = [
   "/evento reunião com fornecedor sexta das 9h às 10h",
   "/concluir contador",
   "/cancelar reunião com fornecedor",
+  "/ata cole aqui o texto da ata (ou envie o arquivo em PDF ou Word)",
   "",
   "Datas aceitas: hoje, amanhã, sexta, 12/10, dia 15; horas como 14h, 14:30 ou 9h às 10h.",
 ].join("\n");
@@ -142,7 +147,9 @@ type Outcome = "ok" | "duplicate" | "ignored";
 
 async function onMessage(deps: BotDeps, msg: TgMessage): Promise<Outcome> {
   // Só conversa privada: em grupo, qualquer um leria as respostas.
-  if (msg.chat.type !== "private" || !msg.from || !msg.text) return "ignored";
+  if (msg.chat.type !== "private" || !msg.from) return "ignored";
+  if (msg.document) return onDocument(deps, msg);
+  if (!msg.text) return "ignored";
   const text = msg.text.trim();
   const match = /^\/(\w+)(?:@\w+)?(?:\s+([\s\S]*))?$/.exec(text);
   const command = match?.[1].toLowerCase();
@@ -182,6 +189,11 @@ async function onMessage(deps: BotDeps, msg: TgMessage): Promise<Outcome> {
       break;
     case "cancelar":
       await proposeCancel(deps, ctx, link, args, now);
+      break;
+    case "ata":
+    case "secretaria":
+      if (!args) await say(deps, msg.chat.id, "Envie o arquivo da ata (PDF, Word ou texto) aqui na conversa, ou escreva /ata seguido do texto da ata.");
+      else await startMinutes(deps, ctx, link, "Texto enviado pelo Telegram", { kind: "text", text: args });
       break;
     default:
       await say(deps, msg.chat.id, command ? `Não conheço o comando /${command}.\n\n${HELP}` : `Para registrar algo, comece com um comando.\n\n${HELP}`);
@@ -430,6 +442,15 @@ async function onCallback(deps: BotDeps, cb: NonNullable<TgUpdate["callback_quer
   }
   if (action === "x") {
     await answer();
+    if (conf.kind === "secretary.apply") {
+      const draftId = (conf.payload as { draftId: string }).draftId;
+      await ctx.db
+        .update(secretaryDrafts)
+        .set({ status: "discarded", updatedAt: now })
+        .where(and(eq(secretaryDrafts.id, draftId), eq(secretaryDrafts.workspaceId, ctx.workspaceId), eq(secretaryDrafts.status, "ready")));
+      await edit("Ok, descartei a proposta. Nada foi criado.");
+      return "ok";
+    }
     await edit("Ok, nada foi alterado.");
     return "ok";
   }
@@ -447,6 +468,8 @@ async function execute(deps: BotDeps, ctx: RequestContext, conf: Confirmation, i
     if (!taskId) return "Opção inválida; nada foi alterado.";
     return (await completeTask(ctx, taskId)) ? `Concluída: ${p.titles[index!]}.` : "Essa tarefa já estava concluída ou foi excluída.";
   }
+
+  if (conf.kind === "secretary.apply") return applyFromTelegram(deps, ctx, (p as { draftId: string }).draftId);
 
   if (conf.kind === "event.create") {
     // O id do compromisso é o da confirmação: repetir a gravação nunca duplica, aqui nem no Google.
@@ -492,6 +515,115 @@ async function pushNow(deps: BotDeps, ctx: RequestContext, eventId: string, kind
   return kind === "upsert"
     ? "Salvo na Central. O Google Agenda ainda não confirmou; vou tentar de novo sozinho e o compromisso aparece como pendente até lá:"
     : "Cancelado na Central. O Google Agenda ainda não confirmou; vou tentar de novo sozinho:";
+}
+
+// ---------- Secretária ----------
+
+/** A Bot API só entrega arquivos de até 20 MB. */
+const MAX_TELEGRAM_FILE = 20 * 1024 * 1024;
+const PROPOSAL_TTL = 7 * 86_400_000;
+
+async function onDocument(deps: BotDeps, msg: TgMessage): Promise<Outcome> {
+  const found = await linkFor(deps.db, msg.from!.id);
+  if (!found) {
+    await say(deps, msg.chat.id, "Esta conta do Telegram ainda não está ligada à Central. Na Central, vá em Configurações, Telegram, gere um código e envie aqui: /vincular CÓDIGO");
+    return "ok";
+  }
+  const { link, ctx } = found;
+  const doc = msg.document!;
+  const name = doc.file_name ?? "Arquivo do Telegram";
+  if (!secretaryEnabled(deps.env)) {
+    await say(deps, link.chatId, "A secretária ainda não está ligada na Central, então não consigo ler arquivos por aqui.");
+    return "ok";
+  }
+  if ((doc.file_size ?? 0) > MAX_TELEGRAM_FILE) {
+    await say(deps, link.chatId, "Esse arquivo passa de 20 MB, o limite do Telegram. Envie pela tela da Secretária na Central.");
+    return "ok";
+  }
+  let input: SecretaryInput;
+  try {
+    const tg = client(deps.env);
+    const file = await tg.getFile(doc.file_id);
+    if (!file.file_path) throw new MinutesError("o Telegram não entregou o arquivo");
+    input = await readMinutes(name, await tg.download(file.file_path));
+  } catch (e) {
+    if (!(e instanceof MinutesError)) await recordError(deps.db, "telegram arquivo", e);
+    await say(deps, link.chatId, `Não consegui ler “${name}”: ${e instanceof MinutesError ? e.message : "falha ao baixar o arquivo"}.`);
+    return "ok";
+  }
+  await startMinutes(deps, ctx, link, name, input);
+  return "ok";
+}
+
+async function startMinutes(deps: BotDeps, ctx: RequestContext, link: Link, sourceName: string, input: SecretaryInput) {
+  if (!secretaryEnabled(deps.env)) {
+    await say(deps, link.chatId, "A secretária ainda não está ligada na Central.");
+    return;
+  }
+  const draft = await createDraft(ctx, { source: "telegram", sourceName, eventId: null, input });
+  await say(deps, link.chatId, `Recebi “${draft.sourceName}”. Estou lendo a ata e aviso aqui quando a proposta estiver pronta.`);
+  const job = runAnalysis(deps, draft.id, input)
+    .then((done) => (done ? sendProposal(deps, ctx, link, done) : undefined))
+    .catch((e) => recordError(deps.db, "secretaria telegram", e));
+  if (deps.defer) deps.defer(job);
+  else await job;
+}
+
+function shortDate(date: string) {
+  const [, m, d] = date.split("-");
+  return `${d}/${m}`;
+}
+
+async function sendProposal(deps: BotDeps, ctx: RequestContext, link: Link, draft: typeof secretaryDrafts.$inferSelect) {
+  const url = `${deps.env.APP_URL.replace(/\/$/, "")}/secretaria?proposta=${draft.id}`;
+  if (draft.status !== "ready" || !draft.proposal) {
+    await say(deps, link.chatId, `Não consegui analisar “${draft.sourceName}”: ${draft.error ?? "erro desconhecido"}.`);
+    return;
+  }
+  const p = draft.proposal;
+  if (!p.tasks.length && !p.projects.length) {
+    await say(deps, link.chatId, `Li “${draft.sourceName}” e não encontrei tarefas a criar.${p.summary ? `\n\n${p.summary}` : ""}`);
+    return;
+  }
+  const names = new Map(p.projects.map((x) => [x.ref, x.title]));
+  const lines = [`Proposta da secretária para “${draft.sourceName}”:`];
+  if (p.summary) lines.push("", p.summary);
+  if (p.projects.length) {
+    lines.push("", "Projetos novos:");
+    for (const x of p.projects) lines.push(`• ${x.title}`);
+  }
+  lines.push("", `Tarefas (${p.tasks.length}):`);
+  for (const t of p.tasks.slice(0, 15)) {
+    const extra = [t.assigneeName, t.dueDate && `até ${shortDate(t.dueDate)}`, t.projectRef && names.get(t.projectRef)].filter(Boolean).join(", ");
+    lines.push(`• ${t.title}${extra ? ` (${extra})` : ""}`);
+  }
+  if (p.tasks.length > 15) lines.push(`… e mais ${p.tasks.length - 15}.`);
+  if (p.notes.length) {
+    lines.push("", "Pontos de atenção:");
+    for (const n of p.notes.slice(0, 5)) lines.push(`• ${n}`);
+  }
+  lines.push("", `Para ajustar antes de criar, abra na Central: ${url}`);
+  let text = lines.join("\n");
+  if (text.length > 4000) text = `${text.slice(0, 3900)}…\n\nVeja a proposta completa na Central: ${url}`;
+  const now = deps.now?.() ?? Date.now();
+  const id = newId();
+  await ctx.db.insert(pendingConfirmations).values({ id, workspaceId: ctx.workspaceId, userId: ctx.userId, kind: "secretary.apply", payload: { draftId: draft.id }, expiresAt: now + PROPOSAL_TTL });
+  await say(deps, link.chatId, text, [[{ text: "Criar tudo", callback_data: `c:${id}` }, { text: "Descartar", callback_data: `x:${id}` }]]);
+}
+
+async function applyFromTelegram(deps: BotDeps, ctx: RequestContext, draftId: string) {
+  const draft = await ctx.db.query.secretaryDrafts.findFirst({ where: and(eq(secretaryDrafts.id, draftId), eq(secretaryDrafts.workspaceId, ctx.workspaceId)) });
+  if (!draft?.proposal) return "Essa proposta não existe mais.";
+  try {
+    const r = await applyProposal(ctx, draft, proposalAsBody(draft.proposal));
+    const parts = [`${r.taskIds.length} ${r.taskIds.length === 1 ? "tarefa" : "tarefas"}`];
+    if (r.projectIds.length) parts.push(`${r.projectIds.length} ${r.projectIds.length === 1 ? "projeto" : "projetos"}`);
+    return `Pronto, criei ${parts.join(" e ")} a partir de “${draft.sourceName}”.`;
+  } catch (e) {
+    if (e instanceof DraftConflict) return "Essa proposta já foi aplicada ou descartada.";
+    if (e instanceof ValidationError) return `Algo mudou na Central desde a análise (um projeto ou pessoa foi removido). Revise na tela: ${deps.env.APP_URL.replace(/\/$/, "")}/secretaria?proposta=${draft.id}`;
+    throw e;
+  }
 }
 
 // ---------- Resumo diário ----------
