@@ -23,6 +23,8 @@ export default defineConfig(async () => {
             TELEGRAM_BOT_TOKEN: "123:bot-test",
             TELEGRAM_WEBHOOK_SECRET: "segredo-webhook",
             TELEGRAM_BOT_USERNAME: "CentralTesteBot",
+            // A secretária nos testes usa uma resposta pronta (secretaryAi.impl), nunca a API de verdade.
+            ANTHROPIC_API_KEY: "sk-ant-teste",
           },
         },
       }),

@@ -92,6 +92,17 @@ Cada pessoa liga o próprio Telegram em **Configurações → Telegram**: a Cent
 
 Passo a passo do bot em [docs/configurar-telegram.md](docs/configurar-telegram.md).
 
+## Secretária
+
+A tela **Secretária** (`/secretaria`) recebe a ata de uma reunião (texto colado, PDF, Word `.docx` ou texto, até 10 MB) e pede à API do Claude uma proposta de projetos e tarefas, com responsável, prazo, prioridade, projeto e checklist. Nada é gravado antes da revisão: a pessoa marca o que quer, ajusta e confirma.
+
+- **Ligar:** variável `ANTHROPIC_API_KEY`. `SECRETARY_MODEL` troca o modelo (padrão em `src/integrations/secretary.ts`). Sem a chave, a tela avisa e o bot não aceita arquivos.
+- **Como roda:** `POST /api/secretary/analyze` grava um rascunho (`secretary_drafts`, status `analyzing`) e a análise segue em segundo plano; a tela consulta `GET /api/secretary/drafts/:id` até virar `ready` ou `failed`. A resposta usa saída estruturada e é conferida no servidor: ids de pessoas e projetos que não existem, datas inválidas e prioridades fora da lista são descartados.
+- **Confirmar:** `POST /api/secretary/drafts/:id/apply` cria projetos, tarefas e itens de checklist num lote só. A troca `ready → applied` é atômica, então dois cliques não duplicam. Responsável citado que não é membro vai para a descrição da tarefa.
+- **Reunião:** em Agenda → Registro da reunião, "Analisar com a secretária" leva pauta, resumo e decisões; as tarefas ficam ligadas ao compromisso.
+- **Telegram:** mandar o arquivo da ata para o bot (ou `/ata texto`) gera a mesma análise; o bot responde com a proposta, os botões "Criar tudo" e "Descartar" e um link para revisar na tela.
+- **Personalizar:** dono e admins escrevem instruções próprias (estilo, regras da casa) em "Personalizar a secretária"; elas vão junto em cada análise.
+
 ## Monitoramento e backups
 
 - **Logs:** cada requisição gera uma linha JSON com `requestId` (também no cabeçalho `x-request-id`), método, rota, status e duração; `observability` está ligado no `wrangler.jsonc`. Erros 500, falhas do sync, do backup e de envio no Telegram vão também para `app_errors` (30 dias).

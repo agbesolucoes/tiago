@@ -22,6 +22,7 @@ import {
 } from "./helpers";
 import { deleteEventStatements } from "./event-delete";
 import { registerNotes } from "./notes";
+import { registerSecretary } from "./secretary";
 import { registerTaskDetails } from "./task-details";
 import * as s from "./schemas";
 
@@ -29,6 +30,7 @@ export const api = new Hono<AppEnv>();
 api.use("*", requireMember);
 registerNotes(api);
 registerTaskDetails(api);
+registerSecretary(api);
 
 const LIST_LIMIT = 500;
 

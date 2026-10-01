@@ -54,6 +54,8 @@ const env: Env = {
   BACKUP_ENCRYPTION_KEY: e.BACKUP_ENCRYPTION_KEY,
   // Num servidor próprio o disco pode se perder junto com o banco: por padrão, cada backup vai também para o Drive.
   BACKUP_TO_DRIVE: e.BACKUP_TO_DRIVE ?? "true",
+  ANTHROPIC_API_KEY: e.ANTHROPIC_API_KEY,
+  SECRETARY_MODEL: e.SECRETARY_MODEL,
   DEV_LOGIN: e.DEV_LOGIN,
   PUSH_ON_WRITE: e.PUSH_ON_WRITE,
 };

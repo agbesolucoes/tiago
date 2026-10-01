@@ -31,6 +31,7 @@ Em **Variáveis de ambiente** do app:
 | `TOKEN_ENCRYPTION_KEY` | gere com `openssl rand -base64 32` |
 | `BACKUP_ENCRYPTION_KEY` | gere com `openssl rand -base64 32`. **Guarde uma cópia fora do servidor:** sem ela nenhum backup abre. |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_BOT_USERNAME` | do bot, veja [configurar-telegram.md](configurar-telegram.md). Opcionais. |
+| `ANTHROPIC_API_KEY` | chave da API do Claude, criada em console.anthropic.com → API Keys. Liga a Secretária (ata → tarefas). Opcional; cada análise de ata é cobrada pela Anthropic. |
 | `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` | seletor de arquivos do Drive. Opcionais. |
 
 Opcionais do servidor Node:

@@ -20,6 +20,10 @@ export interface Env {
   BACKUP_ENCRYPTION_KEY?: string;
   /** "true" guarda também uma cópia de cada backup no Google Drive do dono da instalação (padrão no servidor Node). */
   BACKUP_TO_DRIVE?: string;
+  /** Chave da API do Claude para a secretária (ata → tarefas). Sem ela, a secretária fica desligada. */
+  ANTHROPIC_API_KEY?: string;
+  /** Modelo da secretária; o padrão está em src/integrations/secretary.ts. */
+  SECRETARY_MODEL?: string;
   /** "true" libera /auth/dev-login em localhost, para desenvolver sem Google. Nunca em produção. */
   DEV_LOGIN?: string;
   /** "false" desliga o envio imediato ao Google após cada gravação (fica só o cron). */
