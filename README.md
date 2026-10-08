@@ -102,6 +102,15 @@ Passo a passo do bot em [docs/configurar-telegram.md](docs/configurar-telegram.m
 
 Passo a passo em [docs/backup-e-restauracao.md](docs/backup-e-restauracao.md).
 
+## Mercado (analista Omega)
+
+A tela **Mercado** traz o analista de mercado da Omega Academia (`public/analista/index.html`, servido em `/analista/index.html`) num iframe do mesmo site. Basta informar o endereço do imóvel: o analista consulta IBGE, WorldPop e OpenStreetMap direto do navegador e monta o relatório executivo (PDF, .md).
+
+- Ao terminar, o analista avisa a Central por `postMessage` e o estudo é salvo em `market_studies`: endereço, cidade, coordenadas, parecer, nota da matriz, cobertura e o estado completo da análise compactado (gzip + base64, até 1,9 MB) para reabrir o relatório sem refazer as consultas.
+- `GET/POST /api/market-studies`, `GET/DELETE /api/market-studies/:id` (a lista não traz o estado completo; excluir exige owner ou admin).
+- `POST /api/market-studies/:id/project` cria o projeto "Ponto Omega: <endereço>" com o resumo do estudo na descrição; cada estudo vira projeto uma vez só. Apagar o projeto libera o estudo.
+- O analista é desenvolvido em [agbesolucoes/omega-analista-mercado](https://github.com/agbesolucoes/omega-analista-mercado). Para trazer a versão mais nova: `npm run analista:atualizar` e commit.
+
 ## Publicar
 
 **Hostinger (Node.js):** passo a passo em [docs/publicar-na-hostinger.md](docs/publicar-na-hostinger.md). `npm run build` gera as telas e o servidor (`dist/server/index.mjs`), e `npm start` sobe o app com SQLite e o agendador. `npm run test:node` testa o servidor Node.

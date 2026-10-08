@@ -50,6 +50,13 @@
       "when": 1790777259904,
       "tag": "0006_tarefas_detalhe",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791478214132,
+      "tag": "0007_estudos_mercado",
+      "breakpoints": true
     }
   ]
 }
