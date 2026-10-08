@@ -23,6 +23,7 @@ import {
 import { deleteEventStatements } from "./event-delete";
 import { registerMarket } from "./market";
 import { registerNotes } from "./notes";
+import { registerNotifications } from "./notifications";
 import { registerTaskDetails } from "./task-details";
 import * as s from "./schemas";
 
@@ -31,6 +32,7 @@ api.use("*", requireMember);
 registerNotes(api);
 registerTaskDetails(api);
 registerMarket(api);
+registerNotifications(api);
 
 const LIST_LIMIT = 500;
 

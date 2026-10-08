@@ -142,6 +142,8 @@ export const tasks = sqliteTable(
     priority: text({ enum: priorities }).notNull().default("medium"),
     assigneeId: text().references(() => users.id, { onDelete: "set null" }),
     dueAt: integer(),
+    /** Minutos antes do prazo para avisar (0 = no prazo; tarefa sem horário usa 9h do dia). null = sem aviso. */
+    reminderMinutes: integer().default(0),
     sourceEventId: text().references(() => events.id, { onDelete: "set null" }),
     sourceIdeaId: text(),
     createdBy: text().references(() => users.id),
@@ -505,4 +507,32 @@ export const appErrors = sqliteTable(
 export const reminderLog = sqliteTable("reminder_log", {
   key: text().primaryKey(),
   sentAt: now(),
+});
+
+/** Aparelhos que recebem alertas pelo navegador (Web Push). Um por navegador; o endpoint identifica o aparelho. */
+export const pushSubscriptions = sqliteTable(
+  "push_subscriptions",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    endpoint: text().notNull().unique(),
+    p256dh: text().notNull(),
+    auth: text().notNull(),
+    label: text(),
+    lastSuccessAt: integer({ mode: "number" }),
+    ...timestamps,
+  },
+  (t) => [index("push_subscriptions_user_idx").on(t.workspaceId, t.userId)],
+);
+
+/** Segredos gerados pelo próprio app (ex.: chaves VAPID do Web Push), cifrados com TOKEN_ENCRYPTION_KEY. */
+export const appSecrets = sqliteTable("app_secrets", {
+  key: text().primaryKey(),
+  value: text().notNull(),
+  createdAt: now(),
 });

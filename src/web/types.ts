@@ -36,6 +36,8 @@ export interface Task extends Base {
   projectId: string | null;
   assigneeId: string | null;
   dueAt: string | null;
+  /** Minutos antes do prazo para avisar; null = sem aviso. */
+  reminderMinutes: number | null;
   sourceEventId: string | null;
   sourceIdeaId: string | null;
   /** Vêm só na listagem de tarefas. */
