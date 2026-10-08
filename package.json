@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "build:server": "node scripts/build-server.mjs",
     "start": "node dist/server/index.mjs",
-    "test:node": "vitest run -c vitest.node.config.ts"
+    "test:node": "vitest run -c vitest.node.config.ts",
+    "analista:atualizar": "node scripts/atualizar-analista.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.3",

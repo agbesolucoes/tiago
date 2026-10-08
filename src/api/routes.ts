@@ -21,6 +21,7 @@ import {
   ValidationError,
 } from "./helpers";
 import { deleteEventStatements } from "./event-delete";
+import { registerMarket } from "./market";
 import { registerNotes } from "./notes";
 import { registerTaskDetails } from "./task-details";
 import * as s from "./schemas";
@@ -29,6 +30,7 @@ export const api = new Hono<AppEnv>();
 api.use("*", requireMember);
 registerNotes(api);
 registerTaskDetails(api);
+registerMarket(api);
 
 const LIST_LIMIT = 500;
 

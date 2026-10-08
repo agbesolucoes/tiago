@@ -7,6 +7,7 @@ import { AgendaPage } from "./pages/Agenda";
 import { DashboardPage } from "./pages/Dashboard";
 import { IdeasPage } from "./pages/Ideas";
 import { LoginPage } from "./pages/Login";
+import { MarketPage } from "./pages/Market";
 import { ProjectsPage } from "./pages/Projects";
 import { SearchPage } from "./pages/Search";
 import { SettingsPage } from "./pages/Settings";
@@ -20,6 +21,7 @@ const nav = [
   { to: "/projetos", label: "Projetos", icon: "folder" },
   { to: "/ideias", label: "Ideias", icon: "bulb" },
   { to: "/agenda", label: "Agenda", icon: "calendar" },
+  { to: "/mercado", label: "Mercado", icon: "map" },
 ];
 
 export function App() {
@@ -52,6 +54,7 @@ export function App() {
             <Route path="projetos" element={<ProjectsPage />} />
             <Route path="ideias" element={<IdeasPage />} />
             <Route path="agenda" element={<AgendaPage />} />
+            <Route path="mercado" element={<MarketPage />} />
             <Route path="busca" element={<SearchPage />} />
             <Route path="configuracoes" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
