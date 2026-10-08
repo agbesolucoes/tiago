@@ -102,6 +102,17 @@ Passo a passo do bot em [docs/configurar-telegram.md](docs/configurar-telegram.m
 
 Passo a passo em [docs/backup-e-restauracao.md](docs/backup-e-restauracao.md).
 
+## Alertas (tarefas e agenda)
+
+Em **Configurações → Alertas**, cada pessoa ativa os avisos no próprio aparelho (computador ou celular). Os avisos chegam como notificação do sistema, mesmo com a Central fechada, e também pelo Telegram de quem ligou o bot.
+
+- **Tarefas:** campo **Aviso** (sem aviso, no prazo, 1 hora antes, 1 dia antes). Tarefa nova, inclusive a criada pelo Telegram, avisa no prazo; tarefa só com data avisa às 9h do dia. Vai para o responsável, ou para quem criou se não houver responsável. Tarefa concluída não avisa; mudar o prazo vale um aviso novo.
+- **Agenda:** o lembrete do compromisso (compromisso novo já vem com 30 minutos) vai para todos do workspace que ativaram alertas ou ligaram o Telegram.
+- O cron de 5 minutos envia; `reminder_log` garante um aviso por item, pessoa e canal. Falha no serviço de push tenta de novo no ciclo seguinte (até 1 hora); aparelho que cancelou (404/410) sai da lista.
+- **Web Push sem dependência:** `src/lib/webpush.ts` cifra (RFC 8291, aes128gcm) e assina o VAPID (RFC 8292) só com WebCrypto, igual na Cloudflare e no Node. As chaves VAPID são geradas no primeiro uso e guardadas cifradas em `app_secrets` com `TOKEN_ENCRYPTION_KEY`: não há variável nova. O servidor só envia para serviços de push conhecidos (Google, Mozilla, Apple, Microsoft).
+- `GET /api/notifications`, `POST /api/notifications/devices`, `DELETE /api/notifications/devices/:id`, `POST /api/notifications/test`.
+- **iPhone:** a Apple só entrega alertas para sites adicionados à Tela de Início (Compartilhar → Adicionar à Tela de Início). Para isso a Central tem `manifest.webmanifest`, ícones e o service worker `public/sw.js`.
+
 ## Mercado (analista Omega)
 
 A tela **Mercado** traz o analista de mercado da Omega Academia (`public/analista/index.html`, servido em `/analista/index.html`) num iframe do mesmo site. Basta informar o endereço do imóvel: o analista consulta IBGE, WorldPop e OpenStreetMap direto do navegador e monta o relatório executivo (PDF, .md).

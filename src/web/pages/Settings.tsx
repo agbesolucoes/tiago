@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router";
 import { api } from "../api";
 import { Attachments } from "../components/Attachments";
 import { Icon } from "../components/Icon";
+import { NotificationsSection } from "../components/NotificationsSection";
 import { SystemHealth } from "../components/SystemHealth";
 import { TelegramSection } from "../components/TelegramSection";
 import { Badge, ErrorNote, Loading, PageHeader } from "../components/ui";
@@ -213,6 +214,8 @@ export function SettingsPage() {
           )}
         </section>
       )}
+
+      <NotificationsSection />
 
       <TelegramSection />
 

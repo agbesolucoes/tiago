@@ -103,7 +103,7 @@ export function TelegramSection() {
                 })
               }
             />
-            <span>Receber os lembretes dos compromissos que têm lembrete</span>
+            <span>Receber os lembretes de compromissos e prazos de tarefas</span>
           </label>
           <p className="muted small telegram-help">
             Comandos: /hoje, /tarefa, /ideia, /evento, /concluir, /cancelar e /ajuda. Compromissos e cancelamentos só são gravados depois que você confirma no Telegram.

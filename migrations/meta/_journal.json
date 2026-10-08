@@ -57,6 +57,13 @@
       "when": 1791478214132,
       "tag": "0007_estudos_mercado",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791493139388,
+      "tag": "0008_alertas",
+      "breakpoints": true
     }
   ]
 }
