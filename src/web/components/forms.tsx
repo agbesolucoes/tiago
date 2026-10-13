@@ -97,6 +97,8 @@ export function TaskForm({ task, defaults, onClose, onSaved }: { task?: Task; de
   const [assigneeId, setAssigneeId] = useState(init.assigneeId ?? "");
   const [dueDate, setDueDate] = useState(init.dueAt ? localDate(init.dueAt) : "");
   const [dueTime, setDueTime] = useState(init.dueAt && localTime(init.dueAt) !== "00:00" ? localTime(init.dueAt) : "");
+  // Tarefa nova avisa no prazo; "" = sem aviso.
+  const [reminder, setReminder] = useState(task ? (task.reminderMinutes != null ? String(task.reminderMinutes) : "") : "0");
   const f = useSubmit();
   // Checklist e comentários gravam na hora; ao fechar, a lista recarrega para mostrar o progresso.
   const detailsChanged = useRef(false);
@@ -120,6 +122,7 @@ export function TaskForm({ task, defaults, onClose, onSaved }: { task?: Task; de
         projectId: projectId || null,
         assigneeId: assigneeId || null,
         dueAt: dueDate ? `${dueDate}T${dueTime || "00:00"}` : null,
+        reminderMinutes: reminder === "" ? null : Number(reminder),
       };
       const saved = task ? await api.patch<Task>(`/api/tasks/${task.id}`, body) : await api.post<Task>("/api/tasks", body);
       toast(task ? "Tarefa atualizada." : "Tarefa criada.");
@@ -174,6 +177,14 @@ export function TaskForm({ task, defaults, onClose, onSaved }: { task?: Task; de
           </Field>
           <Field label="Horário" hint="Opcional">
             <input type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} disabled={!dueDate} />
+          </Field>
+          <Field label="Aviso" hint={dueDate && !dueTime ? "Sem horário, o aviso usa 9h do dia" : "Pelos alertas do aparelho e pelo Telegram"}>
+            <select value={reminder} onChange={(e) => setReminder(e.target.value)} disabled={!dueDate}>
+              {TASK_REMINDERS.map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+              {reminder && !TASK_REMINDERS.some(([v]) => v === reminder) && <option value={reminder}>{reminder} minutos antes</option>}
+            </select>
           </Field>
         </div>
         {task?.sourceIdeaId && <p className="muted small">Criada a partir de uma ideia.</p>}
@@ -396,6 +407,13 @@ const REMINDERS: [string, string][] = [
   ["1440", "1 dia antes"],
 ];
 
+const TASK_REMINDERS: [string, string][] = [
+  ["", "Sem aviso"],
+  ["0", "No prazo"],
+  ["60", "1 hora antes"],
+  ["1440", "1 dia antes"],
+];
+
 const FREQ_UNIT: Record<Repeat["freq"], [string, string]> = {
   daily: ["dia", "dias"],
   weekly: ["semana", "semanas"],
@@ -515,7 +533,8 @@ export function EventForm({ event, date, onClose, onSaved }: { event?: CalendarE
   const [end, setEnd] = useState(initial("one").end);
   const [projectId, setProjectId] = useState(event?.projectId ?? "");
   const [repeat, setRepeat] = useState<Repeat | null>(event?.repeat ?? null);
-  const [reminder, setReminder] = useState(event?.reminderMinutes != null ? String(event.reminderMinutes) : "");
+  // Compromisso novo já vem com lembrete de 30 minutos.
+  const [reminder, setReminder] = useState(event ? (event.reminderMinutes != null ? String(event.reminderMinutes) : "") : "30");
   const f = useSubmit();
   const [notesOpen, setNotesOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -651,7 +670,7 @@ export function EventForm({ event, date, onClose, onSaved }: { event?: CalendarE
         )}
         {event?.seriesId && !isSeries && <p className="muted small">Este dia foi alterado à parte da série. Excluir aqui tira só este dia.</p>}
         <div className="grid-2">
-          <Field label="Lembrete" hint="Pelo Google Agenda e pelo Telegram">
+          <Field label="Lembrete" hint="Pelos alertas do aparelho, Telegram e Google Agenda">
             <select value={reminder} onChange={(e) => setReminder(e.target.value)}>
               {REMINDERS.map(([v, l]) => (
                 <option key={v} value={v}>{l}</option>

@@ -24,6 +24,7 @@ import { deleteEventStatements } from "./event-delete";
 import { registerMarket } from "./market";
 import { registerNotes } from "./notes";
 import { registerSecretary } from "./secretary";
+import { registerNotifications } from "./notifications";
 import { registerTaskDetails } from "./task-details";
 import * as s from "./schemas";
 
@@ -33,6 +34,7 @@ registerNotes(api);
 registerTaskDetails(api);
 registerMarket(api);
 registerSecretary(api);
+registerNotifications(api);
 
 const LIST_LIMIT = 500;
 

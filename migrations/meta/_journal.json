@@ -71,6 +71,13 @@
       "when": 1791896719695,
       "tag": "0009_transcricao",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791898362713,
+      "tag": "0008_alertas",
+      "breakpoints": true
     }
   ]
 }
