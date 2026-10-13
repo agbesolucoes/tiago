@@ -4,6 +4,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -207,6 +208,30 @@ export const ideas = sqliteTable(
     ...timestamps,
   },
   (t) => [index("ideas_ws_status_idx").on(t.workspaceId, t.status)],
+);
+
+/** Estudos do analista de mercado Omega: resumo para a lista e o estado completo (gzip + base64) para reabrir o relatório. */
+export const marketStudies = sqliteTable(
+  "market_studies",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    address: text().notNull(),
+    city: text(),
+    lat: real(),
+    lon: real(),
+    verdict: text(),
+    score: real(),
+    coverage: real(),
+    analyzedAt: integer({ mode: "number" }).notNull(),
+    stateGz: text(),
+    projectId: text().references(() => projects.id, { onDelete: "set null" }),
+    createdBy: text().references(() => users.id),
+    ...timestamps,
+  },
+  (t) => [index("market_studies_ws_idx").on(t.workspaceId, t.analyzedAt)],
 );
 
 export const tags = sqliteTable(

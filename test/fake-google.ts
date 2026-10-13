@@ -70,7 +70,11 @@ export class FakeGoogle {
       const q = url.searchParams.get("q") ?? "";
       const name = q.match(/name='((?:[^'\\]|\\.)*)'/)?.[1];
       const parent = q.match(/'([^']+)' in parents/)?.[1];
-      const items = [...this.files.values()].filter((x) => x.byApp && !x.trashed && x.name === name && x.parents.includes(parent!) && x.mimeType === "application/vnd.google-apps.folder");
+      const folder = "application/vnd.google-apps.folder";
+      const wantFolders = q.includes(`mimeType='${folder}'`);
+      const items = [...this.files.values()].filter(
+        (x) => x.byApp && !x.trashed && x.parents.includes(parent!) && (name === undefined || x.name === name) && (wantFolders ? x.mimeType === folder : x.mimeType !== folder),
+      );
       return this.json(200, { files: items.map((x) => this.fileView(x)) });
     }
     if (url.pathname === "/drive/v3/files" && method === "POST") {
@@ -84,6 +88,12 @@ export class FakeGoogle {
       const file = visible(decodeURIComponent(get[1]));
       return file ? this.json(200, this.fileView(file)) : this.json(404, { error: { code: 404, message: "File not found" } });
     }
+    if (get && method === "DELETE") {
+      const file = visible(decodeURIComponent(get[1]));
+      if (!file || !file.byApp) return this.json(404, { error: { code: 404, message: "File not found" } });
+      this.files.delete(file.id);
+      return new Response(null, { status: 204 });
+    }
     if (url.pathname === "/upload/drive/v3/files" && method === "POST") {
       const meta = JSON.parse(init!.body as string);
       const h = new Headers(init!.headers);
@@ -94,9 +104,10 @@ export class FakeGoogle {
     if (url.pathname === "/upload/drive/v3/files" && method === "PUT") {
       const session = this.uploads.get(url.searchParams.get("upload_id")!);
       if (!session) return this.json(404, {});
-      const content = await new Response(init!.body as BodyInit).text();
+      const bytes = await new Response(init!.body as BodyInit).arrayBuffer();
+      const content = new TextDecoder().decode(bytes);
       const id = `u${++this.fileSeq}`;
-      this.files.set(id, { id, name: session.name, mimeType: session.mimeType, parents: session.parents, trashed: false, size: String(content.length), content, byApp: true });
+      this.files.set(id, { id, name: session.name, mimeType: session.mimeType, parents: session.parents, trashed: false, size: String(bytes.byteLength), content, byApp: true });
       return this.json(200, this.fileView(this.files.get(id)!));
     }
     return this.json(404, {});

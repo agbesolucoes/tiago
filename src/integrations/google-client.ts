@@ -198,6 +198,24 @@ export class DriveClient {
     return data.files?.[0] ?? null;
   }
 
+  /** Arquivos (não pastas) dentro de uma pasta; com drive.file, só os criados pela Central. */
+  async listFiles(parentId: string): Promise<DriveFile[]> {
+    const out: DriveFile[] = [];
+    let pageToken: string | undefined;
+    do {
+      const q = `'${parentId}' in parents and trashed=false and mimeType!='${FOLDER_MIME}'`;
+      const params = new URLSearchParams({ q, fields: `nextPageToken,files(${FILE_FIELDS},createdTime)`, pageSize: "100", spaces: "drive", ...(pageToken && { pageToken }) });
+      const { data } = await this.call<{ files?: DriveFile[]; nextPageToken?: string }>("GET", `${DRIVE}/files?${params}`);
+      out.push(...(data.files ?? []));
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+    return out;
+  }
+
+  async deleteFile(id: string) {
+    await this.call<void>("DELETE", `${DRIVE}/files/${encodeURIComponent(id)}`);
+  }
+
   async createFolder(name: string, parentId?: string): Promise<DriveFile> {
     const body = JSON.stringify({ name, mimeType: FOLDER_MIME, ...(parentId && { parents: [parentId] }) });
     return (await this.call<DriveFile>("POST", `${DRIVE}/files?fields=${FILE_FIELDS}`, { body, headers: { "content-type": "application/json" } })).data;

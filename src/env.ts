@@ -18,6 +18,8 @@ export interface Env {
   /** Bucket R2 dos backups e chave (32 bytes em base64) que cifra cada arquivo. Sem os dois, o backup fica desligado. */
   BACKUPS?: R2Bucket;
   BACKUP_ENCRYPTION_KEY?: string;
+  /** "true" guarda também uma cópia de cada backup no Google Drive do dono da instalação (padrão no servidor Node). */
+  BACKUP_TO_DRIVE?: string;
   /** "true" libera /auth/dev-login em localhost, para desenvolver sem Google. Nunca em produção. */
   DEV_LOGIN?: string;
   /** "false" desliga o envio imediato ao Google após cada gravação (fica só o cron). */

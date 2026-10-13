@@ -1,0 +1,1190 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Artur · Analista de Mercado Omega</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Layout: painel de entrada fixo à esquerda, relatório rolando à direita; empilha no celular */
+:root{
+  --bg:#eef1f4; --panel:#ffffff; --ink:#132029; --muted:#5b6b78; --line:#d5dce3;
+  --accent:#1c48c9; --accent-ink:#ffffff; --steel:#2b3a46;
+  --ok:#1d7a46; --warn:#a86500; --bad:#b3261e; --info:#1c5fa8; --hyp:#6b3fa0; --na:#6c7680;
+  --ok-bg:#e3f3ea; --warn-bg:#fbf0dc; --bad-bg:#fbe5e3; --info-bg:#e2edf9; --hyp-bg:#efe7f8; --na-bg:#eceff2;
+  --viz1:#2a78d6; --viz2:#eb6834; --viz3:#1baf7a;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1519; --panel:#172027; --ink:#e6ecf0; --muted:#97a6b2; --line:#2b3741;
+  --accent:#6f95ff; --accent-ink:#0b1220; --steel:#c7d3dc;
+  --ok:#5cc98b; --warn:#f0b04a; --bad:#ff8a80; --info:#7fb4f0; --hyp:#c3a2ee; --na:#9aa5ae;
+  --ok-bg:#16301f; --warn-bg:#33270f; --bad-bg:#3a1a18; --info-bg:#14273b; --hyp-bg:#2a1f3a; --na-bg:#232c33;
+  --viz1:#3987e5; --viz2:#d95926; --viz3:#199e70;
+  color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0f1519; --panel:#172027; --ink:#e6ecf0; --muted:#97a6b2; --line:#2b3741;
+  --accent:#6f95ff; --accent-ink:#0b1220; --steel:#c7d3dc;
+  --ok:#5cc98b; --warn:#f0b04a; --bad:#ff8a80; --info:#7fb4f0; --hyp:#c3a2ee; --na:#9aa5ae;
+  --ok-bg:#16301f; --warn-bg:#33270f; --bad-bg:#3a1a18; --info-bg:#14273b; --hyp-bg:#2a1f3a; --na-bg:#232c33;
+  --viz1:#3987e5; --viz2:#d95926; --viz3:#199e70;
+  color-scheme:dark;}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+.tbl table{min-width:640px}
+td:first-child{min-width:140px}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--f-body);padding-inline:16px}
+h1,h2,h3{font-family:var(--f-display);font-weight:700;letter-spacing:.01em;text-wrap:balance;margin:0}
+h1{font-size:2rem;line-height:1.05}
+h2{font-size:1.55rem;text-transform:uppercase;letter-spacing:.04em}
+h3{font-size:1.15rem;text-transform:uppercase;letter-spacing:.05em;color:var(--steel)}
+a{color:var(--accent)}
+.wrap{max-width:1360px;margin:0 auto;padding-block:20px 48px;display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}}
+.side{position:sticky;top:12px;display:flex;flex-direction:column;gap:16px;max-height:calc(100vh - 24px);overflow-y:auto;padding-right:4px}
+@media (max-width:900px){.side{position:static;max-height:none;overflow:visible;padding-right:0}}
+.brand{display:flex;flex-direction:column;gap:2px}
+.brand small{font:500 .72rem/1 var(--f-mono);text-transform:uppercase;letter-spacing:.14em;color:var(--muted)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px}
+form{display:flex;flex-direction:column;gap:12px}
+label{display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:600;color:var(--steel)}
+label span.hint{font-weight:400;color:var(--muted);font-size:.76rem}
+input,select,textarea{font:inherit;font-size:.95rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;width:100%}
+input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end}
+details{border-top:1px solid var(--line);padding-top:10px}
+summary{cursor:pointer;font-weight:600;font-size:.88rem}
+details[open] summary{margin-bottom:10px}
+details .fields{display:flex;flex-direction:column;gap:10px}
+button{font:600 .95rem var(--f-body);border-radius:4px;border:1px solid transparent;padding:10px 14px;cursor:pointer}
+.btn-primary{background:var(--accent);color:var(--accent-ink);font-family:var(--f-display);font-size:1.15rem;letter-spacing:.06em;text-transform:uppercase}
+.btn-primary:disabled{opacity:.55;cursor:wait}
+.btn-ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn-ghost:hover{border-color:var(--accent)}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+.sources{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:.82rem}
+.sources li{display:grid;grid-template-columns:14px 1fr;gap:8px;align-items:start}
+.dot{width:10px;height:10px;border-radius:50%;margin-top:5px;background:var(--na)}
+.dot.run{background:var(--warn);animation:pulse 1s infinite}
+.dot.ok{background:var(--ok)} .dot.err{background:var(--bad)}
+@keyframes pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.dot.run{animation:none}}
+.sources small{color:var(--muted);display:block}
+.cands{display:flex;flex-direction:column;gap:6px;font-size:.8rem}
+.cands button{text-align:left;font-weight:400;font-size:.8rem;padding:6px 8px}
+main{min-width:0;display:flex;flex-direction:column;gap:20px}
+.empty{padding:28px}
+.empty ol{padding-left:1.2em;max-width:62ch}
+.empty p{max-width:65ch}
+section.block{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.eyebrow{font:500 .72rem/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.verdict{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:start}
+@media (max-width:640px){.verdict{grid-template-columns:minmax(0,1fr)}}
+.verdict .call{font-family:var(--f-display);font-size:2.6rem;line-height:1;text-transform:uppercase;letter-spacing:.02em}
+.gauge{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-family:var(--f-mono)}
+.gauge b{font-size:2.2rem;font-family:var(--f-display)}
+@media (max-width:640px){.gauge{align-items:flex-start}}
+.chip{display:inline-flex;align-items:center;gap:4px;font:500 .7rem/1 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;padding:4px 7px;border-radius:3px;white-space:nowrap}
+.c-ver{background:var(--ok-bg);color:var(--ok)} .c-inf{background:var(--info-bg);color:var(--info)}
+.c-est{background:var(--warn-bg);color:var(--warn)} .c-hip{background:var(--hyp-bg);color:var(--hyp)}
+.c-na{background:var(--na-bg);color:var(--na)} .c-bad{background:var(--bad-bg);color:var(--bad)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.kpi{border:1px solid var(--line);border-radius:4px;padding:12px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.kpi .v{font:600 1.45rem/1.1 var(--f-display);font-variant-numeric:tabular-nums}
+.kpi .l{font-size:.78rem;color:var(--muted)}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:4px}
+table{border-collapse:collapse;width:100%;font-size:.84rem}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{font:600 .72rem var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--bg);position:sticky;top:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--f-mono);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+#map{overflow:hidden;position:relative;height:420px;border-radius:4px;border:1px solid var(--line);z-index:0}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.78rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.note{font-size:.82rem;color:var(--muted);max-width:80ch}
+.callout{border-left:3px solid var(--warn);background:var(--warn-bg);padding:10px 12px;font-size:.86rem;border-radius:0 4px 4px 0}
+.callout.bad{border-color:var(--bad);background:var(--bad-bg)}
+ul.tight{margin:0;padding-left:1.1em;display:flex;flex-direction:column;gap:4px}
+.bar{height:8px;background:var(--na-bg);border-radius:4px;overflow:hidden}
+.bar>span{display:block;height:100%;background:var(--accent)}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.mono{font-family:var(--f-mono);font-size:.82rem}
+.cover{background:var(--panel);border:1px solid var(--line);border-top:6px solid var(--accent);border-radius:6px;padding:24px;display:flex;flex-direction:column;gap:12px}
+.doc-title{font-size:2.4rem;line-height:1.05;text-transform:none;letter-spacing:0}
+.doc-sub{margin:0;font-size:1.05rem;color:var(--steel)}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:4px 0 0}
+.meta div{display:flex;flex-direction:column;gap:2px;min-width:0}.meta dt{font:500 .7rem var(--f-mono);text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}.meta dd{margin:0;font-size:.9rem;overflow-wrap:anywhere}
+.toc{border-top:1px solid var(--line);padding-top:12px}.toc ol{list-style:none;margin:8px 0 0;padding:0;columns:2 220px;column-gap:24px}.toc li{break-inside:avoid;padding:3px 0}.toc a{text-decoration:none;color:var(--ink)}.toc a:hover{color:var(--accent)}.toc .mono{display:inline-block;min-width:1.6em;color:var(--accent)}
+.doc-sec h2{text-transform:none;letter-spacing:0;font-size:1.8rem}
+.doc-sec h3{margin-top:6px}
+.para{margin:0;max-width:78ch}
+.src{margin:-6px 0 0;font-size:.74rem;color:var(--muted);font-style:italic;max-width:90ch}
+.doc-list{margin:0;padding-left:1.3em;display:flex;flex-direction:column;gap:6px;max-width:80ch}
+.fig{margin:0;display:flex;flex-direction:column;gap:6px}.fig figcaption{font-weight:600;font-size:.88rem}
+.svgwrap{overflow-x:auto}.svgwrap svg{max-width:100%;height:auto;display:block}
+.callout.info{border-color:var(--info);background:var(--info-bg)}
+.swot{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media (max-width:640px){.swot{grid-template-columns:1fr}}
+.sw{border-radius:4px;padding:12px 14px;min-width:0}.sw h4{margin:0 0 6px;font:600 .75rem var(--f-mono);text-transform:uppercase;letter-spacing:.1em}.sw ul{margin:0;padding-left:1.1em;font-size:.86rem;display:flex;flex-direction:column;gap:4px}
+.sw-ok{background:var(--ok-bg)}.sw-ok h4{color:var(--ok)}.sw-bad{background:var(--bad-bg)}.sw-bad h4{color:var(--bad)}.sw-info{background:var(--info-bg)}.sw-info h4{color:var(--info)}.sw-warn{background:var(--warn-bg)}.sw-warn h4{color:var(--warn)}
+table.small{font-size:.78rem}
+.btn-primary.small{font-size:1rem;padding:8px 14px}
+@media print{.side,.toolbar,#map,.legend{display:none!important}.wrap{display:block}body{background:#fff}.block,.cover{border:0;break-inside:auto}.doc-sec{break-before:page}}
+.hist{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto}
+.hitem{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:start;font-size:.8rem;border:1px solid var(--line);border-radius:4px;padding:6px 8px}
+.hitem input{width:auto;margin-top:3px}
+.hitem button{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:2px;min-width:0}
+.hitem button:focus-visible{outline:2px solid var(--accent)}
+.hitem small{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside class="side">
+    <div class="brand">
+      <small>Omega Academia · Expansão</small>
+      <h1>Artur, analista de mercado</h1>
+    </div>
+    <div class="card">
+      <form id="f" autocomplete="off">
+        <label for="addr">Endereço do imóvel
+          <input id="addr" name="addr" required placeholder="Rua, número, bairro, cidade - UF">
+          <span class="hint">Aceita também coordenadas: -23.5613, -46.6565</span>
+        </label>
+        <div class="grid2">
+          <label for="dest">Destinatário<input id="dest" value="Diretoria de Expansão Omega Academia"></label>
+          <label for="autor">Preparado por<input id="autor" value="Tiago Deotti"></label>
+        </div>
+        <details id="opt">
+          <summary>Dados do imóvel e do negócio (opcional)</summary>
+          <div class="fields">
+            <p class="note" style="margin:0">Sem estes dados o Artur faz o diagnóstico de mercado e não conclui sobre investimento.</p>
+            <div class="grid2">
+              <label for="area">Área útil (m²)<input id="area" type="number" min="0" step="1"></label>
+              <label for="areaMin">Área mínima do formato (m²)<input id="areaMin" type="number" min="0" step="1"></label>
+            </div>
+            <div class="grid2">
+              <label for="aluguel">Aluguel + encargos (R$/mês)<input id="aluguel" type="number" min="0" step="100"></label>
+              <label for="fixos">Demais custos fixos (R$/mês)<input id="fixos" type="number" min="0" step="100"><span class="hint">folha, energia, sistemas…</span></label>
+            </div>
+            <div class="grid2">
+              <label for="ticket">Ticket médio (R$/mês)<input id="ticket" type="number" min="0" step="1"></label>
+              <label for="margem">Margem de contribuição (%)<input id="margem" type="number" min="0" max="100" step="1"><span class="hint">após royalties, fundo, taxas</span></label>
+            </div>
+            <div class="grid2">
+              <label for="invest">Investimento total (R$)<input id="invest" type="number" min="0" step="1000"></label>
+              <label for="cap">Capacidade máx. de alunos ativos<input id="cap" type="number" min="0" step="10"></label>
+            </div>
+            <label for="formato">Formato pretendido
+              <select id="formato"><option value="">Não informado</option><option>Padrão</option><option>24 horas</option><option>Compacto</option><option>Premium</option></select>
+            </label>
+            <fieldset style="border:1px solid var(--line);border-radius:4px;padding:10px;display:flex;flex-direction:column;gap:8px;margin:0">
+              <legend class="eyebrow" style="padding:0 4px">Hipóteses de cenário</legend>
+              <span class="hint note" style="margin:0">Penetração = alunos ativos estabilizados ÷ moradores em 2 km. Valores iniciais são hipóteses para teste, substitua por dados de unidades semelhantes.</span>
+              <div class="grid2" style="grid-template-columns:repeat(3,1fr)">
+                <label for="pCons">Conserv. %<input id="pCons" type="number" step="0.1" value="0.6"></label>
+                <label for="pBase">Base %<input id="pBase" type="number" step="0.1" value="1.0"></label>
+                <label for="pOti">Otimista %<input id="pOti" type="number" step="0.1" value="1.5"></label>
+              </div>
+              <label for="rampa">Meses até estabilizar<input id="rampa" type="number" min="1" max="24" value="12"></label>
+              <span class="hint note" style="margin:0">Mercado (TAM/SAM): substitua por pesquisa ou dados da rede.</span>
+              <div class="grid2">
+                <label for="taxa">Taxa de prática em academia (%)<input id="taxa" type="number" step="0.5" value="5"></label>
+                <label for="compat">Compatíveis com a proposta Omega (%)<input id="compat" type="number" step="5" value="50"></label>
+              </div>
+            </fieldset>
+          </div>
+        </details>
+        <label for="nocache" style="flex-direction:row;align-items:center;gap:8px;font-weight:400"><input id="nocache" type="checkbox" style="width:auto"> Consultar tudo de novo (ignorar cache de 7 dias)</label>
+        <button class="btn-primary" id="go" type="submit">Analisar região</button>
+      </form>
+    </div>
+    <div class="card" id="candBox" hidden>
+      <div class="eyebrow" style="margin-bottom:8px">Outros resultados do endereço</div>
+      <div class="cands" id="cands"></div>
+    </div>
+    <div class="card" id="histBox" hidden>
+      <div class="eyebrow" style="margin-bottom:10px">Análises salvas neste navegador</div>
+      <div id="hist" class="hist"></div>
+      <div class="row" style="margin-top:10px"><button type="button" class="btn-ghost" id="bCmp" disabled>Comparar selecionadas</button><button type="button" class="btn-ghost" id="bClr">Limpar</button></div>
+    </div>
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:10px">Fontes consultadas</div>
+      <ul class="sources" id="sources"><li><span class="dot"></span><span>Aguardando um endereço.</span></li></ul>
+    </div>
+  </aside>
+
+  <main id="main">
+    <section class="block empty" id="intro">
+      <span class="eyebrow">Como funciona</span>
+      <h2>Informe o endereço, receba o estudo da região</h2>
+      <p>O Artur localiza o imóvel e consulta bases públicas para montar o diagnóstico do entorno em 500 m, 1 km e 2 km, seguindo o escopo de inteligência de mercado da Omega.</p>
+      <ol>
+        <li><b>Localização</b> pelo OpenStreetMap (Nominatim), com aviso quando o número do imóvel não for encontrado.</li>
+        <li><b>Município</b> no IBGE: população e densidade do Censo 2022, estrutura etária e PIB per capita.</li>
+        <li><b>Moradores por raio</b> estimados pelo modelo WorldPop (grade de 100 m), sem somar raios sobrepostos.</li>
+        <li><b>Concorrência</b>: academias, estúdios e lutas mapeados no OpenStreetMap até 3 km, e unidades Omega até 12 km.</li>
+        <li><b>Entorno</b>: transporte, escolas, comércio, escritórios, verticalização e barreiras físicas.</li>
+        <li><b>Parecer preliminar</b> com matriz de pesos, cobertura dos dados, riscos e plano de validação. Com os dados financeiros, cenários de 24 meses.</li>
+      </ol>
+      <p class="note">Todo número aparece com a sua classificação: Verificada, Informada pelo usuário, Estimada, Hipótese de cenário ou Não disponível. Preços de concorrentes nunca são inventados.</p>
+    </section>
+    <div id="report" hidden></div>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+"use strict";
+/* ===================== utilidades ===================== */
+const $ = s => document.querySelector(s);
+const NOW = () => new Date();
+const fmtDate = d => d.toLocaleDateString("pt-BR") + " " + d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+const nf = (v, d=0) => (v==null||!isFinite(v)) ? "—" : Number(v).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
+const brl = v => (v==null||!isFinite(v)) ? "—" : Number(v).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
+const brlC = v => { if(v==null||!isFinite(v)) return "—"; const a=Math.abs(v), sg=v<0?"−":""; return a>=1e6?`${sg}R$ ${nf(a/1e6,1)} mi`:a>=1e3?`${sg}R$ ${nf(a/1e3,0)} mil`:`${sg}R$ ${nf(a,0)}`; };
+const pct = (v,d=1) => (v==null||!isFinite(v)) ? "—" : nf(v*100,d)+"%";
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const norm = s => String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+const roundSig = (v) => { if(!isFinite(v)||v<=0) return v; const p=Math.pow(10,Math.max(0,Math.floor(Math.log10(v))-1)); return Math.round(v/p)*p; };
+function hav(a,b,c,d){const R=6371000,t=Math.PI/180,dl=(c-a)*t,dn=(d-b)*t;const x=Math.sin(dl/2)**2+Math.cos(a*t)*Math.cos(c*t)*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(x));}
+function segDist(lat,lon,a,b){ // distância ponto-segmento em metros (projeção local)
+  const k=Math.cos(lat*Math.PI/180)*111320, m=110540;
+  const ax=(a.lon-lon)*k, ay=(a.lat-lat)*m, bx=(b.lon-lon)*k, by=(b.lat-lat)*m;
+  const dx=bx-ax, dy=by-ay, L=dx*dx+dy*dy; let t=L?-(ax*dx+ay*dy)/L:0; t=Math.max(0,Math.min(1,t));
+  return Math.hypot(ax+t*dx, ay+t*dy);
+}
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+// Busca JSON com tempo limite e novas tentativas em falhas temporárias (429, 5xx, rede).
+async function fetchJSON(url, opts={}, timeout=45000, retries=2){
+  for(let attempt=0;;attempt++){
+    const ctl=new AbortController(); const tm=setTimeout(()=>ctl.abort(),timeout);
+    try{
+      const r=await fetch(url,{...opts,signal:ctl.signal});
+      if(!r.ok){ const e=new Error("HTTP "+r.status); e.retry=r.status===429||r.status>=500; throw e; }
+      return await r.json();
+    }catch(e){
+      const err = e.name==="AbortError" ? Object.assign(new Error("tempo esgotado"),{retry:true}) : e;
+      if(err.retry===undefined) err.retry=true; // erro de rede
+      if(attempt>=retries||!err.retry) throw err;
+      await sleep(2000*(attempt+1)**2);
+    }finally{ clearTimeout(tm); }
+  }
+}
+/* Cache local (7 dias) para não repetir consultas pesadas ao reanalisar o mesmo ponto. */
+const CACHE_TTL=7*864e5; let CACHE_USED=[]; let NO_CACHE=false;
+function hashStr(s){let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return (h>>>0).toString(36);}
+async function cached(key,label,fn){
+  const k="omega_c_"+hashStr(key);
+  if(!NO_CACHE){ try{ const o=JSON.parse(localStorage.getItem(k)||"null"); if(o&&Date.now()-o.at<CACHE_TTL){ CACHE_USED.push({label,at:new Date(o.at)}); return o.v; } }catch(e){} }
+  const v=await fn();
+  try{ const txt=JSON.stringify({at:Date.now(),v}); if(txt.length<1.5e6) localStorage.setItem(k,txt); }catch(e){ pruneCache(); }
+  return v;
+}
+function pruneCache(){ try{ Object.keys(localStorage).filter(k=>k.startsWith("omega_c_")).forEach(k=>localStorage.removeItem(k)); }catch(e){} }
+const CLS = {
+  ver:["c-ver","Verificada"], inf:["c-inf","Informada pelo usuário"], est:["c-est","Estimada"],
+  hip:["c-hip","Hipótese de cenário"], na:["c-na","Não disponível"]
+};
+const chip = k => `<span class="chip ${CLS[k][0]}">${CLS[k][1]}</span>`;
+
+/* ===================== painel de fontes ===================== */
+const srcState = {};
+function src(key, status, label, detail){
+  srcState[key] = {status, label, detail, at: NOW()};
+  $("#sources").innerHTML = Object.values(srcState).map(s=>
+    `<li><span class="dot ${s.status}"></span><span>${esc(s.label)}<small>${esc(s.detail||"")}</small></span></li>`).join("");
+}
+
+/* ===================== geocodificação ===================== */
+const UF_BY_NAME = {"acre":"AC","alagoas":"AL","amapa":"AP","amazonas":"AM","bahia":"BA","ceara":"CE","distrito federal":"DF","espirito santo":"ES","goias":"GO","maranhao":"MA","mato grosso":"MT","mato grosso do sul":"MS","minas gerais":"MG","para":"PA","paraiba":"PB","parana":"PR","pernambuco":"PE","piaui":"PI","rio de janeiro":"RJ","rio grande do norte":"RN","rio grande do sul":"RS","rondonia":"RO","roraima":"RR","santa catarina":"SC","sao paulo":"SP","sergipe":"SE","tocantins":"TO"};
+const NOM = "https://nominatim.openstreetmap.org";
+function fromNominatim(r, method){
+  const a=r.address||{};
+  const iso=a["ISO3166-2-lvl4"]||"";
+  return { lat:+r.lat, lon:+r.lon, display:r.display_name, method,
+    house:a.house_number||"", road:a.road||a.pedestrian||"", suburb:a.suburb||a.neighbourhood||a.city_district||"",
+    city:a.city||a.town||a.village||a.municipality||"", uf: iso.startsWith("BR-")?iso.slice(3):(UF_BY_NAME[norm(a.state)]||""),
+    state:a.state||"", postcode:a.postcode||"" };
+}
+async function geocode(q){
+  const m=q.trim().match(/^(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)$/);
+  if(m){
+    const lat=+m[1], lon=+m[2];
+    let g={lat,lon,display:`${lat}, ${lon}`,method:"Coordenadas informadas",house:"(coordenada)",road:"",suburb:"",city:"",uf:"",state:"",postcode:""};
+    try{ const r=await fetchJSON(`${NOM}/reverse?format=jsonv2&addressdetails=1&accept-language=pt-BR&lat=${lat}&lon=${lon}`); const n=fromNominatim(r,"Coordenadas informadas"); g={...n,lat,lon,house:n.house||"(coordenada)"}; }catch(e){}
+    return {best:g, cands:[]};
+  }
+  try{
+    const res=await fetchJSON(`${NOM}/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=br&accept-language=pt-BR&q=${encodeURIComponent(q)}`);
+    if(res.length) { const list=res.map(r=>fromNominatim(r,"Nominatim/OpenStreetMap")); return {best:list[0], cands:list.slice(1)}; }
+  }catch(e){ console.warn("Nominatim falhou",e); }
+  // fallback Photon (Komoot), também baseado em OSM
+  const ph=await fetchJSON(`https://photon.komoot.io/api/?limit=5&q=${encodeURIComponent(q+", Brasil")}`);
+  const list=(ph.features||[]).filter(f=>(f.properties.countrycode||"").toUpperCase()==="BR").map(f=>{const p=f.properties;return{
+    lat:f.geometry.coordinates[1], lon:f.geometry.coordinates[0], method:"Photon/OpenStreetMap",
+    display:[p.name,p.street,p.housenumber,p.district||p.locality,p.city,p.state].filter(Boolean).join(", "),
+    house:p.housenumber||"", road:p.street||p.name||"", suburb:p.district||p.locality||"", city:p.city||p.county||"", uf:UF_BY_NAME[norm(p.state)]||"", state:p.state||"", postcode:p.postcode||""};});
+  if(!list.length) throw new Error("Endereço não encontrado. Confira a grafia, inclua a cidade e a UF, ou informe as coordenadas.");
+  return {best:list[0], cands:list.slice(1)};
+}
+
+/* ===================== IBGE ===================== */
+async function ibgeMunicipio(uf, city){
+  const list=await fetchJSON(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`);
+  const n=norm(city); return list.find(m=>norm(m.nome)===n) || list.find(m=>norm(m.nome).startsWith(n)||n.startsWith(norm(m.nome)));
+}
+// Retorna [{v, year, value, unit, name}] tentando a API SIDRA e, se falhar, a API de agregados v3.
+const ibgeVars=(t,v,p,id)=>cached(`ibge|${t}|${v}|${p}|${id}`,"IBGE",()=>ibgeVarsRaw(t,v,p,id));
+async function ibgeVarsRaw(table, vars, period, munId){
+  try{
+    const p = period==="last" ? "last%201" : period;
+    const r=await fetchJSON(`https://apisidra.ibge.gov.br/values/t/${table}/n6/${munId}/v/${vars.join(",")}/p/${p}`);
+    const h=r[0]; const key=lbl=>Object.keys(h).find(k=>h[k]===lbl);
+    const kv=key("Variável (Código)"), kvn=key("Variável"), kyr=key("Ano")||key("Ano (Código)"), ku=key("Unidade de Medida");
+    return r.slice(1).map(row=>({v:String(row[kv]), name:row[kvn], year:row[kyr], unit:row[ku], value:parseFloat(row.V)})).filter(x=>isFinite(x.value));
+  }catch(e){
+    const p = period==="last" ? "-1" : period;
+    const r=await fetchJSON(`https://servicodados.ibge.gov.br/api/v3/agregados/${table}/periodos/${p}/variaveis/${vars.join("|")}?localidades=N6[${munId}]`);
+    const out=[]; r.forEach(v=>{const s=v.resultados?.[0]?.series?.[0]?.serie||{}; const yrs=Object.keys(s).sort(); const y=yrs[yrs.length-1]; if(y&&isFinite(parseFloat(s[y]))) out.push({v:String(v.id),name:v.variavel,unit:v.unidade,year:y,value:parseFloat(s[y])});});
+    if(!out.length) throw e; return out;
+  }
+}
+// Estrutura etária (Censo 2022, tabela 9514), usando apenas grupos quinquenais para não contar idades duas vezes.
+const ibgeIdade=id=>cached("ibge|idade|"+id,"IBGE",()=>ibgeIdadeRaw(id));
+async function ibgeIdadeRaw(munId){
+  let rows=[];
+  try{
+    const r=await fetchJSON(`https://apisidra.ibge.gov.br/values/t/9514/n6/${munId}/v/93/p/2022/c287/all`);
+    const h=r[0]; const kName=Object.keys(h).find(k=>h[k]==="Idade");
+    rows=r.slice(1).map(x=>({name:x[kName],value:parseFloat(x.V)}));
+  }catch(e){
+    const r=await fetchJSON(`https://servicodados.ibge.gov.br/api/v3/agregados/9514/periodos/2022/variaveis/93?localidades=N6[${munId}]&classificacao=287[all]`);
+    (r[0]?.resultados||[]).forEach(res=>{const cat=res.classificacoes.find(c=>String(c.id)==="287")?.categoria||{}; const nm=Object.values(cat)[0]; const s=res.series?.[0]?.serie||{}; rows.push({name:nm,value:parseFloat(Object.values(s)[0])});});
+  }
+  const total=rows.find(x=>/^total$/i.test(x.name||""))?.value;
+  const groups=[]; rows.forEach(x=>{const m=(x.name||"").match(/^(\d+) a (\d+) anos$/); if(m&&(+m[2]-+m[1]===4)&&(+m[1]%5===0)) groups.push({a:+m[1],b:+m[2],v:x.value}); const o=(x.name||"").match(/^100 anos ou mais$/); if(o) groups.push({a:100,b:120,v:x.value});});
+  const sum=groups.reduce((s,g)=>s+(g.v||0),0);
+  if(!total||!groups.length||Math.abs(sum-total)/total>0.03) throw new Error("estrutura etária incompleta na resposta");
+  const share=(a,b)=>groups.filter(g=>g.a>=a&&g.b<=b).reduce((s,g)=>s+g.v,0)/total;
+  return {total, bands:[
+    {label:"0 a 14 anos",s:share(0,14)},{label:"15 a 29 anos",s:share(15,29)},{label:"30 a 44 anos",s:share(30,44)},
+    {label:"45 a 59 anos",s:share(45,59)},{label:"60 anos ou mais",s:share(60,120)}]};
+}
+
+/* ===================== WorldPop ===================== */
+function circleRing(lat,lon,r,n=48){const pts=[];for(let i=0;i<=n;i++){const t=2*Math.PI*i/n;const dy=r*Math.cos(t)/110540, dx=r*Math.sin(t)/(111320*Math.cos(lat*Math.PI/180));pts.push([+(lon+dx).toFixed(6),+(lat+dy).toFixed(6)]);}return pts;}
+const worldpop=(lat,lon,r)=>cached(`wp|${lat.toFixed(4)}|${lon.toFixed(4)}|${r}`,"WorldPop",()=>worldpopRaw(lat,lon,r));
+async function worldpopRaw(lat,lon,r){
+  const gj={type:"FeatureCollection",features:[{type:"Feature",properties:{},geometry:{type:"Polygon",coordinates:[circleRing(lat,lon,r)]}}]};
+  let j=await fetchJSON(`https://api.worldpop.org/v1/services/stats?dataset=wpgppop&year=2020&geojson=${encodeURIComponent(JSON.stringify(gj))}&runasync=false`,{},90000);
+  for(let i=0;i<30 && j && j.status!=="finished" && j.taskid;i++){ await sleep(3000); j=await fetchJSON(`https://api.worldpop.org/v1/tasks/${j.taskid}`); if(j.error) throw new Error(j.error_message||"erro WorldPop"); }
+  const v=j?.data?.total_population; if(!isFinite(v)) throw new Error("resposta sem população"); return v;
+}
+
+/* ===================== OpenStreetMap / Overpass ===================== */
+const OVERPASS=["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter","https://overpass.private.coffee/api/interpreter","https://maps.mail.ru/osm/tools/overpass/api/interpreter"];
+const overpass=q=>cached("ovp|"+q,"OpenStreetMap",()=>overpassRaw(q));
+async function overpassRaw(q){
+  const errs=[]; for(const u of OVERPASS){ try{ const j=await fetchJSON(u,{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}},120000,1);
+      if(j.remark&&/runtime error|timed out|out of memory/i.test(j.remark)) throw new Error("Overpass: "+j.remark.slice(0,80)); return j; }catch(e){ errs.push(new URL(u).host+": "+e.message); } }
+  throw new Error(errs.join(" | "));
+}
+const FIT_SPORT="fitness|crossfit|pilates|yoga|martial_arts|boxing|muay_thai|kickboxing|judo|karate|taekwondo|jiu-jitsu|brazilian_jiu-jitsu|capoeira|dance|gymnastics|weightlifting|functional_training|spinning|cycling|calisthenics|swimming";
+// Consultas enxutas: filtros por chave/valor exatos primeiro (rápidos no Overpass); refinamento por esporte e nome no navegador.
+function qFitness(lat,lon){const A=`(around:3000,${lat},${lon})`;return `[out:json][timeout:60];
+(nwr${A}["leisure"="fitness_centre"];nwr${A}["amenity"="gym"];nwr${A}["leisure"="sports_centre"];nwr${A}["sport"~"^(fitness|crossfit|pilates|yoga)$"];);
+out center tags;`;}
+// Rede Omega em ~12 km: filtro por caixa (bbox), muito mais barato que "around" com raio grande; distância filtrada no navegador.
+function qOmega(lat,lon){const dl=0.11, dn=0.11/Math.cos(lat*Math.PI/180); const bb=`${(lat-dl).toFixed(4)},${(lon-dn).toFixed(4)},${(lat+dl).toFixed(4)},${(lon+dn).toFixed(4)}`;
+  return `[out:json][timeout:40];
+nwr["leisure"="fitness_centre"]["name"~"mega",i](${bb});
+out center tags;`;}
+function qContext(lat,lon){const a=r=>`(around:${r},${lat},${lon})`;
+  return `[out:json][timeout:60];
+(nwr${a(2000)}["amenity"~"^(school|university|college|kindergarten)$"];nwr${a(2000)}["shop"~"^(supermarket|mall|department_store)$"];nwr${a(2000)}["amenity"~"^(hospital|clinic)$"];nwr${a(2000)}["leisure"="park"];nwr${a(2000)}["railway"~"^(station|halt)$"];nwr${a(2000)}["station"="subway"];node${a(1000)}["highway"="bus_stop"];);
+out center tags;`;}
+// Contagens: comércio e escritórios em 3 raios; edificações (consulta pesada) só em 500 m e 1 km.
+const CNT_ORDER=[["shop",500],["shop",1000],["shop",2000],["office",500],["office",1000],["office",2000],["building",500],["building",1000],["apartments",500],["apartments",1000]];
+function qCounts(lat,lon){const a=r=>`(around:${r},${lat},${lon})`; const f={shop:r=>`nwr${a(r)}["shop"]`,office:r=>`nwr${a(r)}["office"]`,building:r=>`way${a(r)}["building"]`,apartments:r=>`way${a(r)}["building"="apartments"]`};
+  return `[out:json][timeout:60];\n`+CNT_ORDER.map(([k,r])=>f[k](r)+";out count;").join("\n");}
+function qBarriers(lat,lon){const dl=0.022, dn=0.022/Math.cos(lat*Math.PI/180);const bb=`${(lat-dl).toFixed(5)},${(lon-dn).toFixed(5)},${(lat+dl).toFixed(5)},${(lon+dn).toFixed(5)}`;const a=r=>`(around:${r},${lat},${lon})`;
+  return `[out:json][timeout:60];
+way${a(2000)}["highway"~"^(motorway|trunk)$"];out tags geom(${bb});
+way${a(2000)}["railway"~"^(rail|subway|light_rail)$"]["tunnel"!="yes"];out tags geom(${bb});
+way${a(2000)}["waterway"~"^(river|canal)$"];out tags geom(${bb});
+way${a(250)}["highway"~"^(motorway|trunk|primary|secondary)$"];out tags geom(${bb});`;}
+const center = e => e.type==="node" ? {lat:e.lat,lon:e.lon} : (e.center||null);
+function segment(t){
+  const s=(t.sport||"")+";"+(t.name||"")+";"+(t.leisure||"");
+  if(/pilates/i.test(s)) return "Estúdio de pilates";
+  if(/yoga/i.test(s)) return "Estúdio de yoga";
+  if(/crossfit|cross fit|functional|funcional/i.test(s)) return "Funcional / cross";
+  if(/martial|boxing|muay|judo|karate|taekwondo|jiu|kick|capoeira|luta|fight/i.test(s)) return "Lutas";
+  if(/dance|dança|ballet|balé/i.test(s)) return "Dança";
+  if(/swim|nata[cç]/i.test(s)) return "Natação / aquática";
+  if(/spinning|cycling|bike/i.test(s)) return "Ciclismo indoor";
+  if(t.brand||t["brand:wikidata"]) return "Academia de rede";
+  return "Academia";
+}
+const isOmega = t => /[oô]mega/i.test((t.name||"")+" "+(t.brand||""));
+
+/* ===================== análise ===================== */
+let map, layer;
+async function run(ev){
+  ev?.preventDefault();
+  const q=$("#addr").value.trim(); if(!q) return;
+  for(const k in srcState) delete srcState[k];
+  $("#go").disabled=true; $("#go").textContent="Analisando…";
+  const S={query:q, started:NOW(), inputs:readInputs(), errs:{}};
+  CACHE_USED=[]; NO_CACHE=$("#nocache").checked;
+  try{
+    src("geo","run","Localizando o endereço","Nominatim / OpenStreetMap");
+    const g=S._geo || await geocode(q); S.geo=g.best; renderCands(g.cands);
+    src("geo","ok","Endereço localizado", `${S.geo.method} · ${S.geo.lat.toFixed(5)}, ${S.geo.lon.toFixed(5)}`);
+    await analyse(S);
+  }catch(e){
+    src("geo","err","Não foi possível localizar o endereço", e.message);
+    $("#report").hidden=false; $("#intro").hidden=true;
+    $("#report").innerHTML=`<section class="block"><div class="callout bad"><b>Endereço não localizado.</b> ${esc(e.message)}</div><p class="note">Se a consulta falhou por bloqueio de rede, abra este arquivo diretamente no navegador (Chrome, Edge ou Firefox) com acesso à internet.</p></section>`;
+  }finally{ $("#go").disabled=false; $("#go").textContent="Analisar região"; }
+}
+function renderCands(c){
+  $("#candBox").hidden=!c.length;
+  $("#cands").innerHTML=c.map((x,i)=>`<button type="button" class="btn-ghost" data-i="${i}">${esc(x.display)}</button>`).join("");
+  $("#cands").querySelectorAll("button").forEach(b=>b.onclick=()=>{const x=c[+b.dataset.i]; $("#addr").value=`${x.lat.toFixed(6)}, ${x.lon.toFixed(6)}`; run();});
+}
+function readInputs(){const n=id=>{const v=parseFloat($("#"+id).value);return isFinite(v)?v:null;};
+  return {area:n("area"),areaMin:n("areaMin"),aluguel:n("aluguel"),fixos:n("fixos"),ticket:n("ticket"),margem:n("margem"),invest:n("invest"),cap:n("cap"),formato:$("#formato").value,
+    pen:{cons:n("pCons"),base:n("pBase"),oti:n("pOti")},rampa:n("rampa")||12,taxa:n("taxa"),compat:n("compat"),dest:$("#dest").value.trim(),autor:$("#autor").value.trim()};}
+
+async function analyse(S){
+  const {lat,lon}=S.geo;
+  const tasks=[];
+  // IBGE
+  tasks.push((async()=>{
+    if(!S.geo.uf||!S.geo.city){ src("ibge","err","IBGE","Município não identificado no endereço"); S.errs.ibge="município não identificado"; return; }
+    src("ibge","run","IBGE · município e Censo 2022",`${S.geo.city} - ${S.geo.uf}`);
+    try{
+      const mun=await ibgeMunicipio(S.geo.uf,S.geo.city); if(!mun) throw new Error("município não encontrado na lista do IBGE");
+      S.mun={id:mun.id,nome:mun.nome,uf:S.geo.uf};
+      const c=await ibgeVars(4714,[93,6318,614],"2022",mun.id);
+      const g=v=>c.find(x=>x.v===String(v));
+      S.mun.pop=g(93)?.value; S.mun.area=g(6318)?.value; S.mun.dens=g(614)?.value;
+      try{ S.mun.idade=await ibgeIdade(mun.id); }catch(e){ S.errs.idade=e.message; }
+      try{
+        const pib=(await ibgeVars(5938,[37],"last",mun.id))[0];
+        if(pib){ S.mun.pib={value:pib.value*1000, year:pib.year};
+          let popY=null, popNote="";
+          if(String(pib.year)==="2022") { popY=S.mun.pop; popNote="Censo 2022"; }
+          else { try{ const e=(await ibgeVars(6579,[9324],String(pib.year),mun.id))[0]; if(e){popY=e.value; popNote="estimativa "+e.year;} }catch(e){} }
+          if(!popY && S.mun.pop){ popY=S.mun.pop; popNote="Censo 2022 (ano diferente do PIB)"; }
+          if(popY) S.mun.pibpc={value:pib.value*1000/popY, year:pib.year, popNote}; }
+      }catch(e){ S.errs.pib=e.message; }
+      src("ibge","ok","IBGE · município e Censo 2022",`${mun.nome} (${mun.id})${S.errs.idade?" · idade indisponível":""}${S.errs.pib?" · PIB indisponível":""}`);
+    }catch(e){ S.errs.ibge=e.message; src("ibge","err","IBGE",e.message); }
+  })());
+  // WorldPop
+  tasks.push((async()=>{
+    src("wp","run","WorldPop · moradores por raio","modelo de grade 100 m, ano 2020");
+    try{ const [a,b,c]=await Promise.all([500,1000,2000].map(r=>worldpop(lat,lon,r))); S.pop={r500:a,r1000:b,r2000:c}; src("wp","ok","WorldPop · moradores por raio",`2 km ≈ ${nf(roundSig(c))} pessoas`); }
+    catch(e){ S.errs.wp=e.message; src("wp","err","WorldPop indisponível",e.message); }
+  })());
+  // OSM (sequencial para respeitar limites do Overpass)
+  tasks.push((async()=>{
+    src("osm","run","OpenStreetMap · concorrência e entorno","Overpass API");
+    try{ S.fit=(await overpass(qFitness(lat,lon))).elements; }catch(e){ S.errs.fit=e.message; }
+    try{ S.omg=(await overpass(qOmega(lat,lon))).elements; }catch(e){ S.errs.omega=e.message; }
+    try{ S.ctx=(await overpass(qContext(lat,lon))).elements; }catch(e){ S.errs.ctx=e.message; }
+    try{ S.bar=(await overpass(qBarriers(lat,lon))).elements; }catch(e){ S.errs.bar=e.message; }
+    try{ S.cnt=(await overpass(qCounts(lat,lon))).elements; }catch(e){ S.errs.cnt=e.message; }
+    const names={fit:"concorrência",omega:"rede Omega",ctx:"entorno",bar:"barreiras",cnt:"contagens"};
+    const fails=Object.keys(names).filter(k=>S.errs[k]);
+    src("osm",fails.length===5?"err":"ok","OpenStreetMap · concorrência e entorno",fails.length?`falharam: ${fails.map(k=>names[k]).join(", ")} (${S.errs[fails[0]]}). Tente de novo em alguns minutos.`:"5 consultas concluídas");
+  })());
+  await Promise.all(tasks);
+  S.finished=NOW();
+  S.cache=[...new Set(CACHE_USED.map(c=>c.label+" de "+fmtDate(c.at)))];
+  const R=build(S); render(S,R); window.__ANALISE__={S,R};
+  saveHistory(S,R); notifyHost(S,R);
+}
+
+/* ===================== construção dos indicadores ===================== */
+function build(S){
+  const {lat,lon}=S.geo; const R={};
+  // concorrência
+  const seen=new Set(); R.comp=[]; R.omega=[];
+  [...(S.fit||[]),...(S.omg||[])].forEach(e=>{const c=center(e); if(!c) return; const t=e.tags||{}; const id=e.type+"/"+e.id; if(seen.has(id)) return; seen.add(id);
+    if(t.leisure==="sports_centre" && !isOmega(t) && !new RegExp(FIT_SPORT,"i").test(t.sport||"") && !/academia|fitness|gym|studio|est[uú]dio|crossfit|pilates|muscula/i.test(t.name||"")) return;
+    const d=hav(lat,lon,c.lat,c.lon); const row={id,name:t.name||"(sem nome no mapa)",lat:c.lat,lon:c.lon,d,seg:segment(t),
+      addr:[t["addr:street"],t["addr:housenumber"]].filter(Boolean).join(", ")||"não verificado", hours:t.opening_hours||"não verificado",
+      site:t.website||t["contact:website"]||t["contact:instagram"]||"", phone:t.phone||t["contact:phone"]||"", tags:t};
+    if(isOmega(t)) { if(d<=12000) R.omega.push(row); } else if(d<=3000) R.comp.push(row);});
+  R.comp.sort((a,b)=>a.d-b.d); R.omega.sort((a,b)=>a.d-b.d);
+  const within=(arr,r)=>arr.filter(x=>x.d<=r).length;
+  R.compR={r500:within(R.comp,500),r1000:within(R.comp,1000),r2000:within(R.comp,2000),r3000:R.comp.length};
+  R.segCount={}; R.comp.filter(x=>x.d<=2000).forEach(x=>R.segCount[x.seg]=(R.segCount[x.seg]||0)+1);
+  // entorno
+  const ctx=(S.ctx||[]).filter(e=>e.type!=="count"); const counts=(S.cnt||[]).filter(e=>e.type==="count").map(e=>+e.tags.total);
+  const P=[]; const pseen=new Set();
+  ctx.forEach(e=>{const c=center(e); if(!c) return; const t=e.tags||{}; const id=e.type+"/"+e.id; if(pseen.has(id)) return; pseen.add(id);
+    let k=null; if(/^(school|kindergarten)$/.test(t.amenity)) k="Escolas"; else if(/^(university|college)$/.test(t.amenity)) k="Faculdades"; else if(/^(supermarket)$/.test(t.shop)) k="Supermercados";
+    else if(/^(mall|department_store)$/.test(t.shop)) k="Shoppings e lojas âncora"; else if(/^(hospital|clinic)$/.test(t.amenity)) k="Hospitais e clínicas"; else if(t.leisure==="park") k="Parques e praças";
+    else if(t.railway||t.station==="subway") k="Estações (trem/metrô)"; else if(t.highway==="bus_stop"||t.public_transport==="platform") k="Pontos de ônibus";
+    if(k) P.push({k,name:t.name||"",d:hav(lat,lon,c.lat,c.lon),lat:c.lat,lon:c.lon});});
+  R.poi=P; R.poiCat={}; P.forEach(p=>{const o=R.poiCat[p.k]||(R.poiCat[p.k]={r500:0,r1000:0,r2000:0,near:null}); if(p.d<=500)o.r500++; if(p.d<=1000)o.r1000++; if(p.d<=2000)o.r2000++; if(!o.near||p.d<o.near.d)o.near=p;});
+  if(counts.length===CNT_ORDER.length){R.cnt={}; CNT_ORDER.forEach(([k,r],i)=>{(R.cnt[k]=R.cnt[k]||{r500:null,r1000:null,r2000:null})["r"+r]=counts[i];});}
+  // barreiras
+  R.barriers=[]; R.arterial=null;
+  (S.bar||[]).forEach(e=>{const t=e.tags||{}; const geom=e.geometry||[]; let dm=Infinity; for(let i=1;i<geom.length;i++){ if(!geom[i-1]||!geom[i]) continue; dm=Math.min(dm,segDist(lat,lon,geom[i-1],geom[i])); }
+    if(!isFinite(dm)) return; let kind=null;
+    if(/^(motorway|trunk)$/.test(t.highway)) kind="Rodovia / via expressa"; else if(t.railway) kind=t.railway==="rail"?"Ferrovia":"Linha de metrô/VLT em superfície"; else if(t.waterway) kind=t.waterway==="canal"?"Canal":"Rio";
+    if(/^(motorway|trunk|primary|secondary)$/.test(t.highway) && dm<=250){ if(!R.arterial||dm<R.arterial.d) R.arterial={name:t.name||t.ref||"via sem nome",d:dm,type:t.highway}; }
+    if(kind && dm<=2000){ const key=kind+"|"+(t.name||t.ref||""); const ex=R.barriers.find(b=>b.key===key); if(!ex) R.barriers.push({key,kind,name:t.name||t.ref||"sem nome",d:dm}); else ex.d=Math.min(ex.d,dm); }});
+  R.barriers.sort((a,b)=>a.d-b.d);
+  // populações em anéis (sem sobreposição)
+  if(S.pop){ const p=S.pop; R.rings=[{lbl:"0–500 m",v:p.r500,area:Math.PI*0.25},{lbl:"500 m–1 km",v:Math.max(0,p.r1000-p.r500),area:Math.PI*(1-0.25)},{lbl:"1–2 km",v:Math.max(0,p.r2000-p.r1000),area:Math.PI*(4-1)}];
+    R.dens2k=p.r2000/(Math.PI*4); }
+  R.pop2k = S.pop?.r2000 ?? null;
+  R.residentsPerGym = (R.pop2k && !S.errs.fit) ? R.pop2k/Math.max(1,R.compR.r2000) : null;
+  // financeiro
+  R.fin=finance(S,R);
+  R.market=market(S,R);
+  R.score=score(S,R);
+  R.parecer=parecer(S,R);
+  return R;
+}
+
+function finance(S,R){
+  const I=S.inputs; const F={ok:false, missing:[]};
+  [["ticket","ticket médio"],["margem","margem de contribuição"],["aluguel","aluguel"],["fixos","demais custos fixos"]].forEach(([k,l])=>{if(I[k]==null)F.missing.push(l);});
+  if(F.missing.length) return F;
+  F.ok=true; F.contrib=I.ticket*I.margem/100; F.fixed=I.aluguel+I.fixos;
+  F.be = F.contrib>0 ? F.fixed/F.contrib : null; // ponto de equilíbrio em alunos
+  if(R.pop2k && F.be) F.beShare=F.be/R.pop2k;
+  if(I.cap && F.be) F.capRatio=F.be/I.cap;
+  F.scen=[];
+  if(R.pop2k){
+    [["Conservador",I.pen.cons],["Base",I.pen.base],["Otimista",I.pen.oti]].forEach(([n,p])=>{ if(p==null) return;
+      let alunos=R.pop2k*p/100; let capped=false; if(I.cap && alunos>I.cap){alunos=I.cap;capped=true;}
+      const res=alunos*F.contrib-F.fixed; let cum=-(I.invest||0), pay=null; const months=[];
+      for(let m=1;m<=24;m++){const a=alunos*Math.min(1,m/I.rampa); const r=a*F.contrib-F.fixed; cum+=r; months.push({m,a,r,cum}); if(pay==null && I.invest!=null && cum>=0) pay=m;}
+      const maxRent = alunos*F.contrib - I.fixos; // aluguel máximo para resultado zero na estabilização
+      F.scen.push({n,p,alunos,capped,receita:alunos*I.ticket,res,pay,months,maxRent});});
+    // sensibilidade no cenário base
+    const b=F.scen.find(s=>s.n==="Base");
+    if(b){ const base=b.res; const t=[];
+      t.push({v:"Ticket −10%",d:b.alunos*I.ticket*0.9*I.margem/100-F.fixed-base});
+      t.push({v:"Captação −20%",d:b.alunos*0.8*F.contrib-F.fixed-base});
+      t.push({v:"Margem −5 p.p.",d:b.alunos*I.ticket*(I.margem-5)/100-F.fixed-base});
+      t.push({v:"Aluguel +20%",d:-I.aluguel*0.2});
+      t.push({v:"Demais fixos +15%",d:-I.fixos*0.15});
+      t.sort((x,y)=>x.d-y.d); F.sens=t; }
+  }
+  return F;
+}
+
+/* Matriz de julgamento (não é probabilidade). Pesos do escopo: demanda 25, concorrência 20, acesso 15, imóvel 15, economia 20, expansão 5. */
+const CRIT = {
+  dem:{w:25,n:"Demanda",rule:"Moradores estimados em 2 km: <20 mil = 1; 20–40 mil = 2; 40–70 mil = 3; 70–120 mil = 4; >120 mil = 5."},
+  con:{w:20,n:"Concorrência / posicionamento",rule:"Moradores por academia/estúdio mapeado em 2 km: <3 mil = 1; 3–6 mil = 2; 6–10 mil = 3; 10–15 mil = 4; >15 mil = 5. Nota limitada a 4 porque o mapeamento pode estar incompleto."},
+  ace:{w:15,n:"Acesso / visibilidade",rule:"Pontos de ônibus em 500 m: 0 = 1; 1–3 = 2; 4–8 = 3; 9+ = 4. +1 se houver estação a até 1 km ou via arterial a até 100 m. Máximo 5. Visibilidade da fachada exige visita."},
+  imo:{w:15,n:"Imóvel / capacidade",rule:"Área útil ÷ área mínima do formato: <0,8 = 1 (impedimento potencial); 0,8–1 = 2; 1–1,2 = 3; >1,2 = 4. Sem visita técnica a nota máxima é 4."},
+  eco:{w:20,n:"Economia",rule:"Alunos do ponto de equilíbrio ÷ alunos do cenário base: >1 = 1; 0,85–1 = 2; 0,7–0,85 = 3; 0,5–0,7 = 4; ≤0,5 = 5. Depende das hipóteses de penetração."},
+  exp:{w:5,n:"Expansão / canibalização",rule:"Unidade Omega mais próxima mapeada: <1 km = 1; 1–2 km = 2; 2–3 km = 3; nenhuma em 3 km = 4 (mapeamento pode estar incompleto)."}
+};
+function score(S,R){
+  const s={};
+  if(R.pop2k){const p=R.pop2k; s.dem={v:p<20000?1:p<40000?2:p<70000?3:p<120000?4:5, why:`≈ ${nf(roundSig(p))} moradores estimados em 2 km (WorldPop 2020).`};}
+  if(R.residentsPerGym!=null){const x=R.residentsPerGym; s.con={v:x<3000?1:x<6000?2:x<10000?3:4, why:`${R.compR.r2000} academias/estúdios mapeados em 2 km ≈ ${nf(roundSig(x))} moradores por estabelecimento.`};}
+  if(!S.errs.ctx){const bus=R.poiCat["Pontos de ônibus"]?.r500||0; let v=bus===0?1:bus<=3?2:bus<=8?3:4; const st=R.poiCat["Estações (trem/metrô)"]?.near; const extra=(st&&st.d<=1000)||(R.arterial&&R.arterial.d<=100);
+    if(extra) v=Math.min(5,v+1); s.ace={v, why:`${bus} pontos de ônibus em 500 m${st&&st.d<=1000?`; estação a ${nf(st.d)} m`:""}${R.arterial&&R.arterial.d<=100?`; via arterial (${R.arterial.name}) a ${nf(R.arterial.d)} m`:""}.`};}
+  const I=S.inputs; if(I.area&&I.areaMin){const r=I.area/I.areaMin; s.imo={v:r<0.8?1:r<1?2:r<=1.2?3:4, why:`${nf(I.area)} m² informados frente a ${nf(I.areaMin)} m² do formato (razão ${nf(r,2)}).`, imped:r<0.8};}
+  const bS=R.fin.ok&&R.fin.scen?.find(x=>x.n==="Base");
+  if(bS&&R.fin.be&&bS.alunos>0){const x=R.fin.be/bS.alunos; s.eco={v:x>1?1:x>0.85?2:x>0.7?3:x>0.5?4:5, why:`Equilíbrio em ${nf(Math.ceil(R.fin.be))} alunos frente a ${nf(bS.alunos)} no cenário base (razão ${nf(x,2)}).`};}
+  if(!S.errs.fit && !S.errs.omega){const o=R.omega[0]; const d=o?o.d:Infinity; s.exp={v:d<1000?1:d<2000?2:d<3000?3:4, why:o?`Omega mais próxima mapeada: ${o.name}, a ${nf(d/1000,1)} km.`:"Nenhuma unidade Omega mapeada em 3 km."};}
+  let wsum=0,acc=0; Object.keys(CRIT).forEach(k=>{if(s[k]){wsum+=CRIT[k].w; acc+=CRIT[k].w*s[k].v;}});
+  return {items:s, coverage:wsum/100, value: wsum? acc/wsum : null};
+}
+function parecer(S,R){
+  const sc=R.score; const it=sc.items; const risks=[]; const imp=[];
+  if(it.imo?.imped) imp.push("Área útil abaixo de 80% da área mínima do formato informado.");
+  if(R.fin.ok&&R.fin.capRatio!=null&&R.fin.capRatio>0.85) imp.push(`O equilíbrio exige ${nf(R.fin.be)} alunos, ${pct(R.fin.capRatio,0)} da capacidade informada.`);
+  if(R.fin.ok&&R.fin.contrib<=0) imp.push("Margem de contribuição por aluno não positiva.");
+  let call, conf;
+  const cov=sc.coverage;
+  conf = cov>=0.85 ? "média" : "baixa"; // dados públicos e OSM não permitem confiança alta sem visita e pesquisa local
+  if(imp.length) call="Renegociar";
+  else if(cov<0.6) call="Manter em estudo";
+  else if(sc.value>=3.8) call= cov>=0.85 ? "Avançar com condições" : "Manter em estudo";
+  else if(sc.value>=3.0) call= (it.eco&&it.eco.v<=2) ? "Renegociar" : "Manter em estudo";
+  else if(sc.value<2.3 && cov>=0.8) call="Descartar";
+  else call="Manter em estudo";
+  // riscos principais derivados das evidências
+  if(R.compR.r1000>=6) risks.push({t:"Concorrência densa no raio de 1 km",e:`${R.compR.r1000} academias/estúdios mapeados a até 1 km.`,a:"Levantar preço, estrutura e lotação dos 5 mais próximos; definir diferencial antes de negociar."});
+  if(R.omega[0]&&R.omega[0].d<3000) risks.push({t:"Sobreposição com unidade Omega",e:`${R.omega[0].name} a ${nf(R.omega[0].d/1000,1)} km.`,a:"Cruzar CEP dos alunos da unidade existente e checar regra territorial vigente."});
+  const nearBar=R.barriers.find(b=>b.d<=700); if(nearBar) risks.push({t:"Barreira física próxima",e:`${nearBar.kind} (${nearBar.name}) a ${nf(nearBar.d)} m.`,a:"Mapear travessias e tempo real de acesso a pé e de carro dos dois lados."});
+  if(it.dem&&it.dem.v<=2) risks.push({t:"Base residencial pequena",e:it.dem.why,a:"Medir população diurna (empregos, escolas) e fluxo por horário."});
+  if(it.ace&&it.ace.v<=2) risks.push({t:"Acesso por transporte público limitado",e:it.ace.why,a:"Verificar estacionamento e acesso de carro; contar fluxo em horários de pico."});
+  if(R.fin.ok&&R.fin.scen?.length){const b=R.fin.scen.find(s=>s.n==="Base"); if(b&&b.res<0) risks.push({t:"Resultado negativo no cenário base",e:`Resultado estabilizado de ${brl(b.res)}/mês com ${nf(b.alunos)} alunos.`,a:`Renegociar aluguel abaixo de ${brl(Math.max(0,b.maxRent))}/mês ou rever formato.`});}
+  if(!R.fin.ok) risks.push({t:"Viabilidade financeira não avaliada",e:"Faltam: "+R.fin.missing.join(", ")+".",a:"Obter proposta de locação e premissas da rede (ticket, royalties, folha) para rodar os cenários."});
+  if(!S.geo.house) risks.push({t:"Imóvel não localizado com precisão",e:"O endereço foi encontrado sem número; o estudo vale para a região.",a:"Informar número ou coordenadas do imóvel."});
+  return {call,conf,imp,risks:risks.slice(0,3),allRisks:risks};
+}
+
+/* ===================== relatório executivo =====================
+   Um único modelo de documento (lista de blocos) alimenta três saídas:
+   a tela (HTML), o PDF A4 (pdfmake) e o Markdown. Assim as três ficam sempre iguais. */
+
+const MONTHS=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+const longDate = d => `${d.getDate()} de ${MONTHS[d.getMonth()]} de ${d.getFullYear()}`;
+const shortDate = d => d.toLocaleDateString("pt-BR");
+const CALL_COLOR = {"Avançar":"#1d7a46","Avançar com condições":"#1d7a46","Renegociar":"#a86500","Manter em estudo":"#1c5fa8","Descartar":"#b3261e"};
+const CLS_PDF = {ver:"#1d7a46",inf:"#1c5fa8",est:"#a86500",hip:"#6b3fa0",na:"#6c7680"};
+
+/* ---------- mercado (TAM/SAM/SOM) ---------- */
+function market(S,R){
+  const I=S.inputs, M={};
+  const b=S.mun?.idade?.bands;
+  M.share15 = b ? 1-b[0].s : null;
+  M.pop15 = (R.pop2k && M.share15!=null) ? R.pop2k*M.share15 : null;
+  M.taxa = I.taxa!=null ? I.taxa/100 : null; M.compat = I.compat!=null ? I.compat/100 : null;
+  M.tam = (M.pop15!=null && M.taxa!=null) ? M.pop15*M.taxa : null;
+  M.sam = (M.tam!=null && M.compat!=null) ? M.tam*M.compat : null;
+  M.scen = R.pop2k ? [["Conservador",I.pen.cons],["Base",I.pen.base],["Otimista",I.pen.oti]].filter(x=>x[1]!=null).map(([n,p])=>({n,p,alunos:R.pop2k*p/100})) : [];
+  M.som = M.scen.find(s=>s.n==="Base")?.alunos ?? null;
+  M.somShare = (M.som!=null && M.sam) ? M.som/M.sam : null;
+  M.fair = (M.sam!=null && !S.errs.fit) ? M.sam/(R.compR.r2000+1) : null;
+  M.incoherent = M.somShare!=null && M.somShare>1;
+  if(I.ticket){ const y=v=>v!=null?v*I.ticket*12:null; M.tamR=y(M.tam); M.samR=y(M.sam); M.somR=y(M.som); }
+  return M;
+}
+
+/* ---------- SWOT a partir das evidências ---------- */
+function swot(S,R){
+  const it=R.score.items, I=S.inputs, F=R.fin, sw={S:[],W:[],O:[],T:[]};
+  const st=R.poiCat["Estações (trem/metrô)"]?.near;
+  if(it.dem && it.dem.v>=4) sw.S.push(`Base residencial ampla: ≈ ${nf(roundSig(R.pop2k))} moradores em 2 km (estimativa WorldPop).`);
+  if(st && st.d<=1000) sw.S.push(`Estação ${st.name||"de trem/metrô"} a ${nf(st.d)} m.`);
+  if(R.arterial && R.arterial.d<=100) sw.S.push(`Próximo a via arterial (${R.arterial.name}, ${nf(R.arterial.d)} m): potencial de visibilidade a confirmar em visita.`);
+  if(I.area && I.areaMin && I.area>=I.areaMin) sw.S.push(`Área informada (${nf(I.area)} m²) atende à área mínima do formato (${nf(I.areaMin)} m²).`);
+  if(F.ok && F.scen?.length){ const b=F.scen.find(s=>s.n==="Base"); if(b && b.res>0) sw.S.push(`Resultado positivo no cenário base: ${brl(b.res)}/mês na estabilização (hipótese).`); }
+  sw.S.push("Proposta da marca (força, performance, tradição, atendimento acolhedor): adequação ao público local a validar em pesquisa.");
+
+  if(!S.geo.house) sw.W.push("Imóvel não localizado pelo número: análise vale para a região.");
+  const bus=R.poiCat["Pontos de ônibus"]?.r500;
+  if(!S.errs.ctx && bus!=null && bus<=3) sw.W.push(`Apenas ${bus} pontos de ônibus mapeados a até 500 m.`);
+  if(F.ok && F.scen?.length){ const b=F.scen.find(s=>s.n==="Base"); if(b && I.aluguel>b.maxRent) sw.W.push(`Aluguel (${brl(I.aluguel)}) acima do máximo suportável no cenário base (${brl(Math.max(0,b.maxRent))}).`); if(b && b.res<0) sw.W.push(`Resultado negativo no cenário base (${brl(b.res)}/mês).`); }
+  if(!F.ok) sw.W.push("Viabilidade financeira ainda não avaliada (faltam premissas do negócio).");
+  if(I.area && I.areaMin && I.area<I.areaMin) sw.W.push(`Área informada abaixo da área mínima do formato (${nf(I.area)} de ${nf(I.areaMin)} m²).`);
+
+  if(R.residentsPerGym!=null && R.residentsPerGym>=10000) sw.O.push(`≈ ${nf(roundSig(R.residentsPerGym))} moradores por estabelecimento fitness mapeado em 2 km.`);
+  if(!S.errs.fit){ ["Funcional / cross","Estúdio de pilates","Lutas"].forEach(k=>{ if(!R.segCount[k]) sw.O.push(`Nenhum estabelecimento de ${k.toLowerCase()} mapeado em 2 km: lacuna a confirmar.`); }); }
+  const fac=R.poiCat["Faculdades"]?.r2000; if(fac) sw.O.push(`${fac} faculdade(s) em 2 km: público jovem adulto.`);
+  if(R.cnt?.office?.r1000>=50) sw.O.push(`${nf(R.cnt.office.r1000)} escritórios mapeados em 1 km: fluxo diurno e convênios corporativos.`);
+  const sen=S.mun?.idade?.bands?.[4]?.s; if(sen!=null && sen>=0.15) sw.O.push(`Pessoas com 60 anos ou mais são ${pct(sen)} da população do município: demanda por longevidade e saúde.`);
+
+  if(R.compR.r1000>=5) sw.T.push(`${R.compR.r1000} academias e estúdios mapeados a até 1 km.`);
+  const chains={}; R.comp.filter(c=>c.d<=3000&&(c.tags.brand)).forEach(c=>chains[c.tags.brand]=(chains[c.tags.brand]||0)+1);
+  const ch=Object.entries(chains).sort((a,b)=>b[1]-a[1]); if(ch.length) sw.T.push(`Redes presentes em 3 km: ${ch.slice(0,4).map(([k,v])=>`${k} (${v})`).join(", ")}.`);
+  if(R.omega[0] && R.omega[0].d<3000) sw.T.push(`Unidade Omega a ${nf(R.omega[0].d/1000,1)} km (${R.omega[0].name}): risco de canibalização.`);
+  const nb=R.barriers.find(b=>b.d<=700); if(nb) sw.T.push(`${nb.kind} (${nb.name}) a ${nf(nb.d)} m pode limitar o acesso de um dos lados.`);
+  if(R.market?.incoherent) sw.T.push("Captação do cenário base maior que o mercado atendível: premissas otimistas demais.");
+  ["S","W","O","T"].forEach(k=>{ if(!sw[k].length) sw[k].push("Sem evidência nas bases públicas consultadas."); });
+  return sw;
+}
+
+/* ---------- gráficos em SVG (mesma função para tela e PDF) ---------- */
+const THEME_SCREEN={ink:"var(--ink)",muted:"var(--muted)",grid:"var(--line)",s1:"var(--viz1)",s2:"var(--viz2)",s3:"var(--viz3)",bg:"var(--panel)",style:true};
+const THEME_PDF={ink:"#132029",muted:"#5b6b78",grid:"#d5dce3",s1:"#2a78d6",s2:"#eb6834",s3:"#1baf7a",bg:"#ffffff",style:false};
+const fillA=(T,c)=>T.style?`style="fill:${c}"`:`fill="${c}"`;
+const strokeA=(T,c,w=1,dash)=>T.style?`style="stroke:${c};stroke-width:${w};fill:none${dash?`;stroke-dasharray:${dash}`:""}"`:`stroke="${c}" stroke-width="${w}" fill="none"${dash?` stroke-dasharray="${dash}"`:""}`;
+const txt=(T,x,y,s,{c,size=11,anchor="start",weight=400}={})=>`<text x="${x}" y="${y}" font-size="${size}" font-family="Roboto, IBM Plex Sans, Arial, sans-serif" font-weight="${weight}" text-anchor="${anchor}" ${fillA(T,c||T.ink)}>${esc(s)}</text>`;
+const barPath=(x,y,w,h,r=4)=>{ if(w<=0) return ""; r=Math.min(r,w,h/2); return `M${x},${y} h${w-r} a${r},${r} 0 0 1 ${r},${r} v${h-2*r} a${r},${r} 0 0 1 -${r},${r} h-${w-r} z`; };
+function svgHBar(T,data,{color,fmt=v=>nf(v),labelW=150,w=620}={}){
+  const rowH=28, h=data.length*rowH+8, max=Math.max(...data.map(d=>d.value||0),1), bw=w-labelW-90;
+  let g=""; data.forEach((d,i)=>{const y=i*rowH+6, bl=(d.value||0)/max*bw;
+    g+=txt(T,labelW-8,y+15,d.label,{anchor:"end",c:T.ink});
+    g+=`<path d="${barPath(labelW,y+4,bl,16)}" ${fillA(T,d.color||color||T.s1)}><title>${esc(d.label)}: ${esc(fmt(d.value))}</title></path>`;
+    g+=txt(T,labelW+bl+6,y+16,fmt(d.value),{c:T.muted,size:10.5});});
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg" role="img">${g}</svg>`;
+}
+function svgVBar(T,data,{color,fmt=v=>nf(v),w=620,h=220}={}){
+  const pad={l:10,r:10,t:22,b:34}, n=data.length, max=Math.max(...data.map(d=>d.value||0),1);
+  const cw=(w-pad.l-pad.r)/n, bw=Math.min(64,cw*0.55), ih=h-pad.t-pad.b; let g=`<line x1="${pad.l}" x2="${w-pad.r}" y1="${h-pad.b}" y2="${h-pad.b}" ${strokeA(T,T.grid)}/>`;
+  data.forEach((d,i)=>{const x=pad.l+i*cw+(cw-bw)/2, bh=(d.value||0)/max*ih, y=h-pad.b-bh;
+    if(bh>0) g+=`<path d="M${x},${h-pad.b} v-${bh-4} a4,4 0 0 1 4,-4 h${bw-8} a4,4 0 0 1 4,4 v${bh-4} z" ${fillA(T,d.color||color||T.s1)}><title>${esc(d.label)}: ${esc(fmt(d.value))}</title></path>`;
+    g+=txt(T,x+bw/2,y-6,fmt(d.value),{anchor:"middle",c:T.ink,size:10.5,weight:500});
+    g+=txt(T,x+bw/2,h-pad.b+16,d.label,{anchor:"middle",c:T.muted,size:10.5});});
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg" role="img">${g}</svg>`;
+}
+function svgLines(T,series,{w=620,h=260,yfmt=v=>nf(v)}={}){
+  const pad={l:78,r:16,t:30,b:30}; const xs=series[0].points.map(p=>p.x); const ys=series.flatMap(s=>s.points.map(p=>p.y));
+  let lo=Math.min(0,...ys), hi=Math.max(0,...ys); if(lo===hi) hi=lo+1; const span=hi-lo;
+  const X=x=>pad.l+(x-xs[0])/(xs[xs.length-1]-xs[0]||1)*(w-pad.l-pad.r), Y=y=>pad.t+(hi-y)/span*(h-pad.t-pad.b);
+  let g=""; const ticks=4; for(let i=0;i<=ticks;i++){const v=lo+span*i/ticks; g+=`<line x1="${pad.l}" x2="${w-pad.r}" y1="${Y(v)}" y2="${Y(v)}" ${strokeA(T,T.grid,1)}/>`+txt(T,pad.l-6,Y(v)+4,yfmt(v),{anchor:"end",c:T.muted,size:10});}
+  g+=`<line x1="${pad.l}" x2="${w-pad.r}" y1="${Y(0)}" y2="${Y(0)}" ${strokeA(T,T.muted,1.2)}/>`;
+  [1,6,12,18,24].filter(m=>m>=xs[0]&&m<=xs[xs.length-1]).forEach(m=>g+=txt(T,X(m),h-pad.b+16,"mês "+m,{anchor:"middle",c:T.muted,size:10}));
+  let lx=pad.l; series.forEach(s=>{ g+=`<path d="${s.points.map((p,i)=>(i?"L":"M")+X(p.x).toFixed(1)+","+Y(p.y).toFixed(1)).join(" ")}" ${strokeA(T,s.color,2)}/>`;
+    const last=s.points[s.points.length-1]; g+=`<circle cx="${X(last.x)}" cy="${Y(last.y)}" r="4" ${fillA(T,s.color)}><title>${esc(s.name)}, mês ${last.x}: ${esc(yfmt(last.y))}</title></circle>`;
+    g+=`<rect x="${lx}" y="6" width="12" height="4" rx="2" ${fillA(T,s.color)}/>`+txt(T,lx+16,12,s.name,{c:T.ink,size:10.5}); lx+=16+s.name.length*6.2+18; });
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg" role="img">${g}</svg>`;
+}
+function svgSchematic(T,S,R){
+  const w=620,h=420,cx=230,cy=210,rad=190,maxM=3000,k=rad/maxM; const {lat,lon}=S.geo;
+  const P=(a,b)=>({x:cx+(b-lon)*111320*Math.cos(lat*Math.PI/180)*k, y:cy-(a-lat)*110540*k});
+  let g="";
+  [500,1000,2000,3000].forEach(r=>{g+=`<circle cx="${cx}" cy="${cy}" r="${r*k}" ${strokeA(T,T.grid,1.2,r===2000?null:"4 4")}/>`+txt(T,cx+r*k*0.707+4,cy-r*k*0.707-2,r>=1000?(r/1000)+" km":r+" m",{c:T.muted,size:10});});
+  R.poi.filter(p=>p.k==="Estações (trem/metrô)").forEach(p=>{const q=P(p.lat,p.lon); g+=`<path d="M${q.x},${q.y-6} l5,9 h-10 z" ${fillA(T,T.s3)}><title>${esc(p.name||"Estação")}</title></path>`;});
+  R.comp.forEach(c=>{const q=P(c.lat,c.lon); g+=`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="4.5" ${fillA(T,T.s2)} ${T.style?"":'stroke="#ffffff" stroke-width="1"'}><title>${esc(c.name)} · ${nf(c.d)} m</title></circle>`;});
+  R.omega.filter(o=>o.d<=maxM).forEach(c=>{const q=P(c.lat,c.lon); g+=`<circle cx="${q.x}" cy="${q.y}" r="6.5" ${fillA(T,T.s1)}><title>${esc(c.name)}</title></circle>`;});
+  g+=`<rect x="${cx-6}" y="${cy-6}" width="12" height="12" rx="2" ${fillA(T,T.ink)}><title>Imóvel analisado</title></rect>`;
+  g+=txt(T,cx,cy+rad+14,"N ↑ · escala: 1 km = "+nf(1000*k)+" px",{anchor:"middle",c:T.muted,size:9.5});
+  const lg=[["Imóvel analisado",T.ink,"sq"],["Academias e estúdios",T.s2,"c"],["Unidades Omega",T.s1,"c"],["Estações",T.s3,"t"]]; let ly=40;
+  lg.forEach(([l,c,s])=>{ const x=450; g+= s==="sq"?`<rect x="${x}" y="${ly-9}" width="11" height="11" rx="2" ${fillA(T,c)}/>`: s==="t"?`<path d="M${x+5},${ly-9} l5,10 h-10 z" ${fillA(T,c)}/>`:`<circle cx="${x+5}" cy="${ly-4}" r="5" ${fillA(T,c)}/>`; g+=txt(T,x+18,ly,l,{c:T.ink,size:11}); ly+=22; });
+  g+=txt(T,450,ly+8,`${R.comp.length} estabelecimentos até 3 km`,{c:T.muted,size:10})+txt(T,450,ly+24,"Distâncias em linha reta",{c:T.muted,size:10});
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg" role="img">${g}</svg>`;
+}
+
+/* ---------- montagem do documento ---------- */
+function buildDoc(S,R){
+  const I=S.inputs, g=S.geo, m=S.mun||{}, it=R.score.items, P=R.parecer, F=R.fin, M=R.market, dt=shortDate(S.finished), dtl=fmtDate(S.finished);
+  const SRC={
+    ibge:`IBGE, Censo Demográfico 2022, tabela 4714 (referência 2022; consulta em ${dt})`,
+    idade:`IBGE, Censo Demográfico 2022, tabela 9514 (referência 2022; consulta em ${dt})`,
+    pib:`IBGE, PIB dos Municípios, tabela 5938 (referência ${m.pibpc?.year||"—"}; consulta em ${dt})`,
+    wp:`WorldPop, Global High Resolution Population, grade de 100 m (referência 2020; consulta em ${dt})`,
+    osm:`© colaboradores do OpenStreetMap, via Overpass API (consulta em ${dtl})`,
+    user:`Informado pelo usuário em ${dt}`, hyp:"Hipótese de cenário editável no painel de entrada",
+    geo:`${g.method} (consulta em ${dt})`
+  };
+  const D=[]; let sec=0; const toc=[];
+  const H1=(id,text)=>{sec++; toc.push({id,n:sec,text}); D.push({t:"h1",id,n:sec,text});};
+  const H2=text=>D.push({t:"h2",text});
+  const Pp=text=>D.push({t:"p",text});
+  const SrcL=(...k)=>D.push({t:"src",text:"Fonte: "+k.map(x=>SRC[x]||x).join("; ")+"."});
+  const Tb=(head,rows,o={})=>D.push({t:"table",head,rows,...o});
+  const Ch=(title,svg,o={})=>D.push({t:"chart",title,svg,...o});
+  const Co=(text,kind="warn")=>D.push({t:"callout",text,kind});
+  const Ls=(items,ordered)=>D.push({t:"list",items,ordered});
+  const C=(text,cls)=>({text,cls});
+  const addr=[g.road,g.house].filter(Boolean).join(", ")||S.query;
+  const meta={title:"Estudo de Mercado para Expansão", subtitle:`Unidade Omega Academia · ${addr}${g.city?` · ${g.city}${g.uf?" - "+g.uf:""}`:""}`,
+    addrShort:addr, display:g.display, author:I.autor||"Tiago Deotti", to:I.dest||"Diretoria de Expansão Omega Academia",
+    date:longDate(S.finished), coords:`${g.lat.toFixed(5)}, ${g.lon.toFixed(5)}`, call:P.call, conf:P.conf, cov:R.score.coverage, score:R.score.value};
+
+  /* 1. Resumo executivo */
+  H1("resumo","Resumo executivo");
+  D.push({t:"verdict",call:P.call,conf:P.conf,cov:R.score.coverage,score:R.score.value});
+  const concl=[];
+  concl.push(`**Parecer: ${P.call.toLowerCase()}**, com confiança ${P.conf}. A matriz de decisão soma ${R.score.value!=null?nf(R.score.value,1):"—"} de 5 sobre ${pct(R.score.coverage,0)} dos pesos com dados disponíveis.`);
+  if(R.pop2k) concl.push(`**Demanda:** cerca de ${nf(roundSig(R.pop2k))} moradores em 2 km (${nf(roundSig(R.dens2k))} hab/km²)${M.share15!=null?`; ${pct(M.share15,0)} da população do município tem 15 anos ou mais`:""}. Estimativa de modelo, não Censo.`);
+  else concl.push("**Demanda:** a estimativa de moradores por raio não ficou disponível nesta consulta.");
+  if(!S.errs.fit){ const top=Object.entries(R.segCount).sort((a,b)=>b[1]-a[1])[0]; concl.push(`**Concorrência:** ${R.compR.r2000} academias e estúdios mapeados em 2 km${R.residentsPerGym?` (≈ ${nf(roundSig(R.residentsPerGym))} moradores por estabelecimento)`:""}${top?`, com predominância de ${top[0].toLowerCase()} (${top[1]})`:""}. ${R.compR.r1000} estão a até 1 km.`); }
+  else concl.push("**Concorrência:** o levantamento no OpenStreetMap não respondeu nesta consulta; refaça a análise antes de decidir.");
+  if(M.som!=null) concl.push(`**Mercado:** no cenário base a unidade capta ≈ ${nf(roundSig(M.som))} alunos${M.sam?`, ${pct(M.somShare,0)} do mercado atendível estimado (${nf(roundSig(M.sam))} pessoas)`:""}. Valores dependem de hipóteses de adesão.`);
+  if(F.ok){ const b=F.scen?.find(s=>s.n==="Base"); concl.push(`**Viabilidade:** equilíbrio com ${nf(Math.ceil(F.be))} alunos ativos${b?`; resultado de ${brl(b.res)}/mês no cenário base${b.pay?` e payback no mês ${b.pay}`:I.invest!=null?" e payback acima de 24 meses":""}`:""}.`); }
+  else concl.push(`**Viabilidade:** não avaliada. Faltam ${F.missing.join(", ")}.`);
+  Ls(concl.slice(0,5),true);
+  if(P.imp.length) Co("**Impedimentos a resolver antes de avançar:** "+P.imp.join(" "),"bad");
+  H2("Principais riscos");
+  Tb(["Risco","Evidência","Ação recomendada"],P.risks.map(r=>[C(r.t,"b"),r.e,r.a]),{widths:[110,"*","*"]});
+  if(!g.house) Co("O número do imóvel não foi localizado na base de endereços. Este estudo avalia a região, não um imóvel específico.");
+
+  /* 2. Introdução e objetivos */
+  H1("intro","Introdução e objetivos");
+  Pp(`Este estudo avalia o potencial de mercado para uma unidade Omega Academia em **${g.display}**. A Omega posiciona a marca em força, performance, tradição e atendimento acolhedor e profissional; o estudo verifica se o entorno tem demanda, acesso e espaço competitivo para essa proposta.`);
+  Pp(`**Pergunta central:** o ponto reúne demanda, acesso e posicionamento suficientes para sustentar uma unidade Omega${I.formato?` no formato ${I.formato.toLowerCase()}`:""}, e em quais condições?`);
+  H2("Escopo");
+  Tb(["Item","Definição"],[
+    ["Ponto analisado",`${g.display} (${meta.coords})`],
+    ["Território","Raios de 500 m, 1 km e 2 km (referência central), com concorrência mapeada até 3 km e rede Omega até 12 km"],
+    ["Formato pretendido",I.formato||"Não informado"],
+    ["Destinatário",meta.to],
+    ["Tipo de entrega","Triagem preliminar com dados públicos: não substitui visita técnica, pesquisa local e validação comercial"]
+  ],{widths:[110,"*"]});
+  H2("Objetivos");
+  Ls(["Dimensionar a demanda do entorno e o mercado potencial (TAM, SAM, SOM).","Mapear concorrentes diretos e substitutos e o espaço de posicionamento.","Identificar barreiras de acesso, geradores de fluxo e riscos de canibalização.","Testar a viabilidade em cenários, quando houver premissas financeiras.","Emitir parecer com plano de validação."]);
+
+  /* 3. Metodologia */
+  H1("metodo","Metodologia");
+  Pp("O estudo usa apenas fontes secundárias públicas, consultadas automaticamente na data indicada. Nenhuma pesquisa primária (entrevistas, contagem de fluxo, visita) foi realizada. Cada número do relatório traz uma classificação de confiança.");
+  Tb(["Dimensão","Fonte","Recorte","Referência","Classificação"],[
+    ["Localização",g.method,"Ponto","Consulta "+dt,C("Verificada","ver")],
+    ["População, densidade, idade","IBGE, Censo 2022 (tabelas 4714 e 9514)","Município","2022",C(m.pop?"Verificada":"Não disponível",m.pop?"ver":"na")],
+    ["PIB per capita","IBGE, PIB dos Municípios (5938)","Município",m.pibpc?.year||"—",C(m.pibpc?"Estimada":"Não disponível",m.pibpc?"est":"na")],
+    ["Moradores por raio","WorldPop, grade de 100 m","500 m, 1 km, 2 km","2020",C(S.pop?"Estimada":"Não disponível",S.pop?"est":"na")],
+    ["Concorrentes e rede Omega","OpenStreetMap (Overpass)","3 km e 12 km","Consulta "+dt,C(S.errs.fit?"Não disponível":"Verificada*",S.errs.fit?"na":"ver")],
+    ["Geradores de fluxo e barreiras","OpenStreetMap (Overpass)","2 km","Consulta "+dt,C(S.errs.ctx?"Não disponível":"Verificada*",S.errs.ctx?"na":"ver")],
+    ["Premissas do negócio","Usuário","Imóvel","Consulta "+dt,C(F.ok?"Informada pelo usuário":"Não disponível",F.ok?"inf":"na")],
+    ["Adesão e captação","Hipóteses editáveis","2 km","—",C("Hipótese de cenário","hip")]
+  ],{widths:[95,110,70,55,"*"]});
+  SrcL("geo","ibge","wp","osm");
+  H2("Classificação dos dados");
+  Tb(["Classe","Significado"],[
+    [C("Verificada","ver"),"Fonte identificada, com data e recorte compatíveis. *No OpenStreetMap a existência é verificada, mas a cobertura não é completa."],
+    [C("Informada pelo usuário","inf"),"Dado do negócio ainda não validado externamente."],
+    [C("Estimada","est"),"Calculada por método explícito, com limitações descritas."],
+    [C("Hipótese de cenário","hip"),"Premissa para teste, sem confirmação empírica."],
+    [C("Não disponível","na"),"Ausência relevante para a decisão; entra no plano de validação."]
+  ],{widths:[110,"*"]});
+  H2("Limitações");
+  Ls(["Renda do entorno, população diurna, fluxo de pedestres e preços de concorrentes não têm fonte aberta automatizada e aparecem como não disponíveis.","Os moradores por raio vêm de um modelo estatístico (WorldPop 2020), não do Censo por setor censitário.","Estrutura etária e PIB são do município inteiro e podem diferir do entorno.","O OpenStreetMap é mantido por voluntários: concorrentes podem faltar.","Distâncias são em linha reta; tempos de deslocamento não foram calculados."]);
+  if(Object.keys(S.errs).length) Co(`Consultas que não responderam nesta análise: ${Object.entries(S.errs).map(([k,v])=>`${({fit:"concorrência",ctx:"entorno",bar:"barreiras",cnt:"contagens",wp:"WorldPop",ibge:"IBGE",idade:"idade",pib:"PIB"})[k]||k} (${v})`).join("; ")}. Use "Refazer consultas" para tentar de novo.`,"bad");
+
+  /* 4. Mercado */
+  H1("mercado","Tamanho do mercado (TAM, SAM, SOM)");
+  Pp("O mercado é estimado em sequência, sem reduzir duas vezes pelo mesmo filtro: população com 15 anos ou mais no raio de 2 km → pessoas que praticam atividade em academia (TAM) → parcela compatível com a proposta e o preço da Omega (SAM) → alunos que a unidade capta no cenário base (SOM).");
+  if(M.tam!=null){
+    Ch("Funil de mercado no raio de 2 km (pessoas)",T=>svgHBar(T,[{label:"Moradores 15+ (2 km)",value:M.pop15},{label:"TAM: praticantes",value:M.tam},{label:"SAM: compatíveis",value:M.sam},{label:"SOM: captação base",value:M.som}].filter(d=>d.value!=null),{fmt:v=>nf(roundSig(v)),labelW:160}),{caption:"Valores arredondados. TAM e SAM dependem das hipóteses de adesão e compatibilidade."});
+  }
+  Tb(["Etapa","Método","Pessoas","Receita anual potencial","Classificação"],[
+    ["Moradores 15+ em 2 km",`Moradores 2 km × ${M.share15!=null?pct(M.share15,1):"—"} (15+ no município)`,M.pop15!=null?nf(roundSig(M.pop15)):"—","—",C("Estimada","est")],
+    ["TAM",`× taxa de prática ${M.taxa!=null?pct(M.taxa,1):"—"}`,M.tam!=null?nf(roundSig(M.tam)):"—",M.tamR!=null?brl(roundSig(M.tamR)):"—",C("Hipótese de cenário","hip")],
+    ["SAM",`× compatibilidade ${M.compat!=null?pct(M.compat,0):"—"}`,M.sam!=null?nf(roundSig(M.sam)):"—",M.samR!=null?brl(roundSig(M.samR)):"—",C("Hipótese de cenário","hip")],
+    ["SOM (cenário base)",`Moradores 2 km × penetração ${I.pen.base!=null?nf(I.pen.base,1)+"%":"—"}`,M.som!=null?nf(roundSig(M.som)):"—",M.somR!=null?brl(roundSig(M.somR)):"—",C("Hipótese de cenário","hip")],
+    ["Referência: parcela justa",`SAM ÷ (concorrentes em 2 km + 1)`,M.fair!=null?nf(roundSig(M.fair)):"—","—",C("Estimada","est")]
+  ],{widths:[80,"*",50,75,75],num:[2,3]});
+  SrcL("wp","idade","hyp",...(I.ticket?["user"]:[]));
+  if(M.incoherent) Co(`A captação do cenário base (${nf(roundSig(M.som))}) supera o mercado atendível (${nf(roundSig(M.sam))}). Reveja a penetração ou as hipóteses de adesão.`,"bad");
+  if(M.somShare!=null && !M.incoherent) Pp(`O cenário base exige capturar **${pct(M.somShare,0)} do SAM**${M.fair!=null?`; a parcela justa, dividindo o SAM igualmente entre os ${R.compR.r2000+1} ofertantes, seria ≈ ${nf(roundSig(M.fair))} alunos`:""}. Receita anual potencial usa o ticket informado × 12.`);
+  Co("TAM, SAM e SOM são cenários, não demanda comprovada. Substitua a taxa de prática e a compatibilidade por pesquisa local ou dados de unidades semelhantes.","info");
+
+  /* 5. Território e acesso */
+  H1("territorio","Território e acesso");
+  D.push({t:"map"});
+  Ch("Mapa esquemático do entorno",T=>svgSchematic(T,S,R),{caption:"Posições reais projetadas em escala; anéis de 500 m, 1 km, 2 km e 3 km.",pdfOnly:true,pdfWidth:440});
+  SrcL("osm");
+  if(R.rings){
+    H2("População por anel");
+    Ch("Moradores por anel, sem sobreposição",T=>svgVBar(T,R.rings.map(r=>({label:r.lbl,value:r.v})),{fmt:v=>nf(roundSig(v))}));
+    Tb(["Anel","Moradores","Área (km²)","Densidade (hab/km²)"],R.rings.map(r=>[r.lbl,nf(roundSig(r.v)),nf(r.area,2),nf(roundSig(r.v/r.area))]).concat([[C("Total 2 km","b"),C(nf(roundSig(R.pop2k)),"b"),nf(Math.PI*4,2),nf(roundSig(R.dens2k))]]),{widths:["*",80,80,100],num:[1,2,3]});
+    SrcL("wp");
+  } else Co("Moradores por raio indisponíveis nesta consulta. A população do bairro ou do município não foi usada como substituto.");
+  if(!S.errs.ctx){
+    H2("Geradores de fluxo");
+    const cats=["Estações (trem/metrô)","Pontos de ônibus","Escolas","Faculdades","Supermercados","Shoppings e lojas âncora","Hospitais e clínicas","Parques e praças"];
+    Tb(["Categoria","500 m","1 km","2 km","Mais próximo"],cats.map(k=>{const o=R.poiCat[k]||{r500:0,r1000:0,r2000:0}; const bus=k==="Pontos de ônibus"; return [k,String(o.r500),String(o.r1000),bus?"—":String(o.r2000),o.near?`${o.near.name||"sem nome"} · ${nf(o.near.d)} m`:"—"];}),{widths:[110,40,40,40,"*"],num:[1,2,3]});
+    SrcL("osm");
+  }
+  if(R.cnt){ const c=R.cnt; const v=r=>c.building[r]&&c.apartments[r]!=null?pct(c.apartments[r]/c.building[r]):"—";
+    H2("Ocupação e atividade econômica");
+    Tb(["Indicador","500 m","1 km","2 km"],[["Comércios mapeados",nf(c.shop.r500),nf(c.shop.r1000),nf(c.shop.r2000)],["Escritórios mapeados",nf(c.office.r500),nf(c.office.r1000),nf(c.office.r2000)],["Edificações mapeadas",nf(c.building.r500),nf(c.building.r1000),"—"],["Prédios de apartamentos",nf(c.apartments.r500),nf(c.apartments.r1000),"—"],["Participação de apartamentos",v("r500"),v("r1000"),"—"]],{widths:["*",60,60,60],num:[1,2,3]});
+    SrcL("osm"); Pp("Verticalização indica densidade de ocupação, não poder aquisitivo. Contagens dependem do mapeamento voluntário e servem para comparar raios.");
+  }
+  H2("Barreiras e vias");
+  if(S.errs.bar) Pp("Consulta de barreiras indisponível nesta análise.");
+  else { if(R.barriers.length) Tb(["Tipo","Nome","Distância"],R.barriers.slice(0,8).map(b=>[b.kind,b.name,nf(b.d)+" m"]),{widths:[120,"*",60],num:[2]}); else Pp("Nenhuma rodovia, ferrovia ou rio mapeado em 2 km.");
+    Pp(`${R.arterial?`Via arterial mais próxima: **${R.arterial.name}** a ${nf(R.arterial.d)} m.`:"Nenhuma via arterial a até 250 m."} Distância em linha reta não equivale a acesso real; isócronas de 5, 10 e 15 minutos não foram calculadas.`); SrcL("osm"); }
+
+  /* 6. Consumidor */
+  H1("consumidor","Perfil e comportamento do consumidor");
+  if(m.idade){ Ch(`Estrutura etária de ${m.nome}`,T=>svgHBar(T,m.idade.bands.map(b=>({label:b.label,value:b.s})),{fmt:v=>pct(v),labelW:120})); SrcL("idade"); }
+  Tb(["Indicador do município","Valor","Classificação"],[["População residente",m.pop?nf(m.pop):"—",C(m.pop?"Verificada":"Não disponível",m.pop?"ver":"na")],["Densidade demográfica",m.dens?nf(m.dens,1)+" hab/km²":"—",C(m.dens?"Verificada":"Não disponível",m.dens?"ver":"na")],["PIB per capita",m.pibpc?`${brl(m.pibpc.value)} (${m.pibpc.year})`:"—",C(m.pibpc?"Estimada":"Não disponível",m.pibpc?"est":"na")],["Renda domiciliar do entorno","—",C("Não disponível","na")]],{widths:["*",120,110],num:[1]});
+  SrcL("ibge","pib"); Pp("PIB per capita mede a atividade econômica do município, não a renda das famílias do entorno. Capacidade econômica não equivale a disposição para pagar.");
+  H2("Segmentos locais a investigar");
+  const b=m.idade?.bands; const segs=[["Jovens adultos: força, estética, performance",b?`15 a 29 anos = ${pct(b[1].s)} do município${R.poiCat["Faculdades"]?.r2000?`; ${R.poiCat["Faculdades"].r2000} faculdade(s) em 2 km`:""}`:"—","Sensibilidade a preço, horário noturno, presença de redes de baixo custo"],
+    ["Adultos com rotina de trabalho: conveniência, condicionamento",b?`30 a 59 anos = ${pct(b[2].s+b[3].s)} do município${R.cnt?`; ${nf(R.cnt.office.r1000)} escritórios em 1 km`:""}`:"—","Picos de 6h a 9h e 18h a 21h, estacionamento, convênios corporativos"],
+    ["60 anos ou mais: longevidade, bem-estar, saúde",b?`${pct(b[4].s)} do município`:"—","Acompanhamento profissional, horários diurnos, acessibilidade, parceria com clínicas"]];
+  if((R.segCount["Estúdio de pilates"]||0)+(R.segCount["Funcional / cross"]||0)>=3) segs.push(["Público de estúdios (pilates, funcional)",`${(R.segCount["Estúdio de pilates"]||0)+(R.segCount["Funcional / cross"]||0)} estúdios em 2 km`,"Se a Omega compete ou complementa; ticket e frequência desse público"]);
+  Tb(["Segmento (hipótese)","Evidência disponível","O que investigar"],segs,{widths:[130,"*","*"]});
+  Pp("Segmentos são hipóteses de trabalho; a demanda de cada um precisa de pesquisa local e teste de pré-venda.");
+
+  /* 7. Concorrência */
+  H1("concorrencia","Análise da concorrência");
+  if(S.errs.fit) Co(`O levantamento de concorrentes não respondeu (${S.errs.fit}). Refaça as consultas antes de usar este relatório para decisão.`,"bad");
+  else {
+    D.push({t:"kpis",items:[{l:"Até 500 m",v:R.compR.r500},{l:"Até 1 km",v:R.compR.r1000},{l:"Até 2 km",v:R.compR.r2000},{l:"Até 3 km",v:R.compR.r3000},{l:"Moradores por estabelecimento (2 km)",v:R.residentsPerGym?nf(roundSig(R.residentsPerGym)):"—"}]});
+    const segData=Object.entries(R.segCount).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:k,value:v}));
+    if(segData.length) Ch("Estabelecimentos por segmento em 2 km",T=>svgHBar(T,segData,{labelW:150}));
+    const bands=[[0,500,"0–500 m"],[500,1000,"500 m–1 km"],[1000,2000,"1–2 km"],[2000,3000,"2–3 km"]];
+    Ch("Estabelecimentos por faixa de distância",T=>svgVBar(T,bands.map(([a,b2,l])=>({label:l,value:R.comp.filter(c=>c.d>a&&c.d<=b2).length}))));
+    SrcL("osm");
+    H2("Principais players");
+    const chains={}; R.comp.forEach(c=>{const k=c.tags.brand; if(k) chains[k]=(chains[k]||0)+1;});
+    Tb(["Nome","Segmento","Distância","Horário","Preço"],R.comp.slice(0,12).map(c=>[c.name,c.seg,nf(c.d)+" m",c.hours,C("não verificado","na")]),{widths:["*",90,50,90,60],num:[2]});
+    Pp(`${Object.keys(chains).length?`Redes identificadas em 3 km: ${Object.entries(chains).map(([k,v])=>`${k} (${v})`).join(", ")}. `:"Nenhuma rede identificada pela marca no mapeamento. "}A lista completa está no Apêndice A. Quantidade isolada não comprova saturação: concorrência pode indicar demanda.`);
+    SrcL("osm");
+    H2("Posicionamento");
+    Pp("O mapa de posicionamento (preço × estrutura) depende de preços, taxa de adesão, fidelidade e estrutura dos concorrentes, que não foram verificados. A ação está priorizada no plano de validação.");
+  }
+  H2("Matriz SWOT");
+  D.push({t:"swot",...swot(S,R)});
+  Pp("Forças e fraquezas referem-se ao ponto e à proposta; oportunidades e ameaças, ao ambiente. Cada item vem das evidências deste relatório.");
+
+  /* 8. Canibalização */
+  H1("canibal","Rede Omega e canibalização");
+  if(S.errs.omega) Pp("Busca da rede Omega indisponível nesta consulta.");
+  else if(R.omega.length) { Tb(["Unidade Omega mapeada","Distância"],R.omega.slice(0,8).map(o=>[o.name,nf(o.d/1000,1)+" km"]),{widths:["*",80],num:[1]}); SrcL("osm"); }
+  else Pp("Nenhuma unidade Omega mapeada no OpenStreetMap em 12 km.");
+  Pp("O mapa público pode não listar todas as unidades. Confirme com a lista oficial, a origem (CEP) dos alunos das unidades vizinhas e a regra territorial vigente. Não há base para estimar canibalização exata; a receita incremental para a rede pode ser menor que a receita da nova unidade.");
+
+  /* 9. Imóvel */
+  H1("imovel","Imóvel e capacidade");
+  Tb(["Item","Valor","Classificação"],[["Formato pretendido",I.formato||"Não informado",C(I.formato?"Informada pelo usuário":"Não disponível",I.formato?"inf":"na")],["Área útil",I.area!=null?nf(I.area)+" m²":"—",C(I.area!=null?"Informada pelo usuário":"Não disponível",I.area!=null?"inf":"na")],["Área mínima do formato",I.areaMin!=null?nf(I.areaMin)+" m²":"—",C(I.areaMin!=null?"Informada pelo usuário":"Não disponível",I.areaMin!=null?"inf":"na")],["Capacidade máxima de alunos ativos",I.cap!=null?nf(I.cap):"—",C(I.cap!=null?"Informada pelo usuário":"Não disponível",I.cap!=null?"inf":"na")],["Aluguel + encargos",I.aluguel!=null?brl(I.aluguel)+"/mês":"—",C(I.aluguel!=null?"Informada pelo usuário":"Não disponível",I.aluguel!=null?"inf":"na")]],{widths:["*",120,120]});
+  if(I.formato==="24 horas") Co("Formato 24 horas: confronte a demanda noturna com custo de equipe, energia e segurança do entorno.");
+  Pp("Itens que exigem visita técnica: visibilidade e fachada, estacionamento, estrutura e cargas, vestiários, climatização, acústica, energia, acessibilidade, licenças e possibilidade de expansão. A capacidade simultânea deve ser estimada pela frequência e pela distribuição horária, sem regra universal de alunos por m².");
+
+  /* 10. Viabilidade */
+  H1("viabilidade","Viabilidade financeira");
+  if(!F.ok) Co(`Cenários não calculados. Informe ${F.missing.join(", ")} no painel “Dados do imóvel e do negócio”. Sem esses dados o estudo fica no diagnóstico de mercado e não conclui sobre investimento.`);
+  else {
+    D.push({t:"kpis",items:[{l:"Contribuição por aluno",v:brl(F.contrib)},{l:"Custos fixos mensais",v:brl(F.fixed)},{l:"Ponto de equilíbrio",v:F.be?nf(Math.ceil(F.be))+" alunos":"—"},...(F.capRatio!=null?[{l:"Equilíbrio ÷ capacidade",v:pct(F.capRatio,0)}]:[])]});
+    if(F.scen?.length){
+      Tb(["Cenário","Penetração","Alunos","MRR","Resultado/mês","Aluguel máximo","Payback"],F.scen.map(s=>[C(s.n,"b"),nf(s.p,1)+"%",nf(s.alunos)+(s.capped?" (limite)":""),brl(s.receita),C(brl(s.res),s.res<0?"neg":"pos"),brl(Math.max(0,s.maxRent)),I.invest==null?"—":s.pay?`mês ${s.pay}`:"> 24 meses"]),{widths:[60,50,50,"*","*","*",50],num:[1,2,3,4,5,6]});
+      SrcL("user","hyp");
+      if(I.invest!=null) Ch("Caixa acumulado após o investimento (24 meses)",T=>svgLines(T,F.scen.map((s,i)=>({name:s.n,color:[T.s2,T.s1,T.s3][i],points:s.months.map(x=>({x:x.m,y:x.cum}))})),{yfmt:brlC}),{caption:`Rampa linear até ${I.rampa} meses; payback é o mês em que o caixa acumulado fica não negativo.`});
+      if(F.sens){ Ch("Sensibilidade do resultado mensal (cenário base)",T=>svgHBar(T,F.sens.map(x=>({label:x.v,value:Math.abs(x.d)})),{fmt:v=>"−"+brl(v),labelW:130,color:T.s2})); Pp(`A variável que mais altera a decisão é **${F.sens[0].v.toLowerCase()}**.`); }
+    }
+    Pp("Modelo simplificado: base de alunos ativos com rampa linear, sem separar matrículas, cancelamentos e inadimplência. Não inclui tributos nem reinvestimentos além do que estiver na margem informada. MRR = alunos ativos × ticket.");
+  }
+
+  /* 11. Parecer */
+  H1("parecer","Matriz de decisão e parecer");
+  Ch("Notas por dimensão (0 a 5)",T=>svgHBar(T,Object.entries(CRIT).map(([k,c])=>({label:`${c.n} (${c.w}%)`,value:it[k]?.v??0})),{fmt:v=>v?String(v):"sem dados",labelW:200}));
+  Tb(["Dimensão","Peso","Nota","Justificativa","Critério"],Object.entries(CRIT).map(([k,c])=>[C(c.n,"b"),c.w+"%",it[k]?String(it[k].v):"—",it[k]?it[k].why:C("Não disponível","na"),c.rule]),{widths:[70,30,30,"*","*"],num:[1,2],small:true});
+  Pp(`Pontuação parcial **${R.score.value!=null?nf(R.score.value,1):"—"} / 5** sobre ${pct(R.score.coverage,0)} dos pesos. A matriz é um julgamento estruturado, não probabilidade de sucesso. Dimensões sem dados ficam fora da conta em vez de receber zero; impedimentos comprovados prevalecem sobre a nota.`);
+
+  /* 12. Conclusões e recomendações */
+  H1("recomendacoes","Conclusões e recomendações");
+  Pp(`**${P.call}** (confiança ${P.conf}). ${P.call==="Manter em estudo"?"As evidências públicas não bastam para decidir; o plano abaixo fecha as lacunas que mudam o parecer.":P.call==="Renegociar"?"O ponto tem potencial, mas as condições atuais não fecham; renegociar antes de avançar.":P.call==="Avançar com condições"?"O ponto pode avançar se as condições abaixo forem confirmadas.":P.call==="Descartar"?"As evidências disponíveis indicam baixa atratividade.":"" }`);
+  H2("Evidência, impacto e ação");
+  Tb(["Evidência","Impacto na decisão","Ação"],P.allRisks.map(r=>[r.e,r.t,r.a]),{widths:["*","*","*"]});
+  H2("Plano de validação");
+  Tb(["Prioridade","Ação","Responsável","Prazo","Critério de sucesso","Decisão que destrava"],planRows(S,R).map(r=>[C(r[0],r[0]==="Alta"?"neg":"est"),...r.slice(1)]),{widths:[42,"*",58,42,"*","*"],small:true});
+  H2("Evidências que podem mudar o parecer");
+  Ls(["Preços e lotação dos concorrentes mais próximos.","Contagem de fluxo nos horários de pico.","Renda e domicílios por setor censitário (Censo 2022).","Origem dos alunos das unidades Omega vizinhas.","Resultado de pré-venda com condição comercial clara."]);
+
+  /* Apêndices */
+  sec++; D.push({t:"h1",id:"apendices",n:"A",text:"Apêndices",appendix:true}); toc.push({id:"apendices",n:"A",text:"Apêndices"});
+  H2("Apêndice A · Lista completa de concorrentes (até 3 km)");
+  if(S.errs.fit) Pp("Indisponível.");
+  else Tb(["Nome","Segmento","Distância","Endereço","Horário","Contato","Fonte"],R.comp.map(c=>[c.name,c.seg,nf(c.d)+" m",c.addr,c.hours,[c.site,c.phone].filter(Boolean).join(" · ")||"—",{text:"OSM "+c.id,link:"https://www.openstreetmap.org/"+c.id}]),{widths:[85,60,40,"*",55,60,50],num:[2],small:true});
+  H2("Apêndice B · Referências");
+  Ls([`Localização: ${g.method}. https://www.openstreetmap.org/?mlat=${g.lat}&mlon=${g.lon}`,`IBGE, Censo Demográfico 2022, tabelas 4714 e 9514. https://sidra.ibge.gov.br/tabela/4714`,`IBGE, PIB dos Municípios, tabela 5938. https://sidra.ibge.gov.br/tabela/5938`,`WorldPop, Global High Resolution Population Denominators, 2020. https://www.worldpop.org/`,`OpenStreetMap, via Overpass API. https://www.openstreetmap.org/copyright`,`Escopo de análise: Artur, Inteligência de Mercado e Expansão Omega Academia.`,`Data e hora da consulta: ${dtl}${S.cache?.length?` (reaproveitado do cache local: ${S.cache.join("; ")})`:""}.`]);
+  H2("Apêndice C · Glossário");
+  Tb(["Termo","Definição"],[["TAM","Mercado total: pessoas no raio que praticam atividade em academia."],["SAM","Mercado atendível: parcela do TAM compatível com a proposta e o preço."],["SOM","Mercado capturável: alunos que a unidade espera captar."],["MRR","Receita mensal recorrente normalizada, sem receitas pontuais."],["Ponto de equilíbrio","Custos fixos ÷ contribuição mensal por aluno."],["Payback","Mês em que o caixa acumulado após o investimento fica não negativo."],["Penetração","Alunos ativos estabilizados ÷ moradores em 2 km."]],{widths:[90,"*"]});
+  return {meta,blocks:D,toc};
+}
+function planRows(S,R){
+  const p=[
+    ["Alta","Contar fluxo por horário e dia (manhã, almoço, noite; dia útil e sábado)","Expansão","2 semanas","Fluxo compatível com o público nos picos","Confirma acesso e visibilidade"],
+    ["Alta","Levantar preço, adesão, fidelidade e estrutura dos 5 concorrentes mais próximos","Mercado","1 semana","Tabela completa com fonte e data","Define posicionamento e ticket"],
+    ["Alta","Visita técnica ao imóvel (estrutura, cargas, vestiários, energia, licenças)","Engenharia","2 semanas","Laudo sem impedimento de uso","Libera a negociação do contrato"],
+    ["Média","Baixar o Censo 2022 por setor censitário (população, domicílios, renda) em 2 km","Mercado","1 semana","Renda e domicílios por anel","Troca estimativas por dados verificados"],
+    ["Média","Pesquisa local com moradores e trabalhadores (objetivos, barreiras, preço aceito)","Marketing","3 semanas","Amostra mínima por segmento","Valida segmentos e disposição a pagar"],
+    ["Média","Teste de pré-venda com condição clara","Comercial","4 semanas","Matrículas pagas, não apenas leads","Valida a captação do cenário base"]];
+  if(R.omega[0]&&R.omega[0].d<5000) p.splice(2,0,["Alta",`Cruzar CEP dos alunos da unidade ${R.omega[0].name} e checar a regra territorial`,"Rede Omega","1 semana","Sobreposição medida","Define a receita incremental da rede"]);
+  if(!R.fin.ok) p.unshift(["Alta","Obter proposta de locação e premissas da rede (ticket, royalties, folha, investimento)","Franqueado","1 semana","Premissas documentadas","Permite os cenários financeiros"]);
+  return p;
+}
+
+/* ---------- saída HTML ---------- */
+const inlineMd = s => esc(s).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>");
+function cellHTML(c){ if(c&&typeof c==="object"){ if(c.cls&&CLS[c.cls]) return chip(c.cls); if(c.link) return `<a href="${esc(c.link)}" target="_blank" rel="noopener">${esc(c.text)}</a>`; if(c.cls==="b") return `<b>${esc(c.text)}</b>`; if(c.cls==="neg"||c.cls==="pos") return `<span style="color:var(--${c.cls==="neg"?"bad":"ok"})">${esc(c.text)}</span>`; return esc(c.text); } return esc(c); }
+function docHTML(doc){
+  const {meta,blocks,toc}=doc; let h="";
+  h+=`<header class="cover"><div class="toolbar"><button class="btn-primary small" type="button" id="bPdf">Baixar PDF executivo</button><button class="btn-ghost" type="button" id="bMd">Baixar .md</button><button class="btn-ghost" type="button" id="bCopy">Copiar texto</button><button class="btn-ghost" type="button" id="bJson">Dados .json</button><button class="btn-ghost" type="button" id="bRetry">Refazer consultas</button></div>
+    <span class="eyebrow">Omega Academia · Inteligência de Mercado</span><h2 class="doc-title">${esc(meta.title)}</h2><p class="doc-sub">${esc(meta.subtitle)}</p>
+    <dl class="meta"><div><dt>Preparado por</dt><dd>${esc(meta.author)}</dd></div><div><dt>Destinatário</dt><dd>${esc(meta.to)}</dd></div><div><dt>Data</dt><dd>${esc(meta.date)}</dd></div><div><dt>Coordenadas</dt><dd class="mono">${esc(meta.coords)}</dd></div></dl>
+    <nav class="toc" aria-label="Sumário"><span class="eyebrow">Sumário</span><ol>${toc.map(t=>`<li><a href="#s-${t.id}"><span class="mono">${t.n}</span> ${esc(t.text)}</a></li>`).join("")}</ol></nav></header>`;
+  let open=false;
+  blocks.forEach(b=>{
+    switch(b.t){
+      case "h1": if(open) h+="</section>"; h+=`<section class="block doc-sec" id="s-${b.id}"><span class="eyebrow">${b.appendix?"Anexos":"Seção "+b.n}</span><h2>${b.appendix?"":b.n+". "}${esc(b.text)}</h2>`; open=true; break;
+      case "h2": h+=`<h3>${esc(b.text)}</h3>`; break;
+      case "p": h+=`<p class="para">${inlineMd(b.text)}</p>`; break;
+      case "src": h+=`<p class="src">${esc(b.text)}</p>`; break;
+      case "list": h+=`<${b.ordered?"ol":"ul"} class="doc-list">${b.items.map(i=>`<li>${inlineMd(i)}</li>`).join("")}</${b.ordered?"ol":"ul"}>`; break;
+      case "callout": h+=`<div class="callout ${b.kind}">${inlineMd(b.text)}</div>`; break;
+      case "kpis": h+=`<div class="kpis">${b.items.map(k=>`<div class="kpi"><span class="l">${esc(k.l)}</span><span class="v">${esc(k.v)}</span></div>`).join("")}</div>`; break;
+      case "table": h+=`<div class="tbl"><table${b.small?' class="small"':""}><thead><tr>${b.head.map((x,i)=>`<th${b.num?.includes(i)?' class="n"':""}>${esc(x)}</th>`).join("")}</tr></thead><tbody>${b.rows.map(r=>`<tr>${r.map((c,i)=>`<td${b.num?.includes(i)?' class="n"':""}>${cellHTML(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`; break;
+      case "chart": if(b.pdfOnly) break; h+=`<figure class="fig"><figcaption>${esc(b.title)}</figcaption><div class="svgwrap">${b.svg(THEME_SCREEN)}</div>${b.caption?`<p class="src">${esc(b.caption)}</p>`:""}</figure>`; break;
+      case "map": h+=`<div id="map"></div><div class="legend"><span><i style="background:var(--accent)"></i>Imóvel</span><span><i style="background:#d6452d"></i>Academias e estúdios</span><span><i style="background:#f2b705"></i>Unidades Omega</span><span><i style="background:#2a9d8f"></i>Estações</span><span>Círculos: 500 m, 1 km e 2 km</span></div>`; break;
+      case "verdict": h+=`<div class="verdict"><div style="min-width:0"><div class="call" style="color:${CALL_COLOR[b.call]}">${esc(b.call)}</div><div>Confiança <b>${esc(b.conf)}</b> · cobertura dos pesos ${pct(b.cov,0)}</div></div><div class="gauge"><span class="eyebrow">Matriz parcial</span><b>${b.score!=null?nf(b.score,1):"—"}<small style="font-size:1rem"> / 5</small></b></div></div>`; break;
+      case "swot": h+=`<div class="swot">${[["S","Forças","ok"],["W","Fraquezas","bad"],["O","Oportunidades","info"],["T","Ameaças","warn"]].map(([k,l,c])=>`<div class="sw sw-${c}"><h4>${l}</h4><ul>${b[k].map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`).join("")}</div>`; break;
+    }
+  });
+  if(open) h+="</section>";
+  return h;
+}
+
+/* ---------- saída Markdown ---------- */
+const cellMd = c => String(c&&typeof c==="object"?c.text??CLS[c.cls]?.[1]??"":c??"").replace(/\|/g,"/").replace(/\n/g," ");
+function docMarkdown(doc){
+  const {meta,blocks,toc}=doc, L=[];
+  L.push(`# ${meta.title}`,``,`**${meta.subtitle}**`,``,`- Preparado por: ${meta.author}`,`- Destinatário: ${meta.to}`,`- Data: ${meta.date}`,`- Endereço: ${meta.display}`,`- Coordenadas: ${meta.coords}`,``,`## Sumário`,``,...toc.map(t=>`${t.n}. ${t.text}`),``);
+  blocks.forEach(b=>{ switch(b.t){
+    case "h1": L.push(`## ${b.appendix?"":b.n+". "}${b.text}`,""); break;
+    case "h2": L.push(`### ${b.text}`,""); break;
+    case "p": L.push(b.text,""); break;
+    case "src": L.push(`_${b.text}_`,""); break;
+    case "list": b.items.forEach((x,i)=>L.push(`${b.ordered?(i+1)+".":"-"} ${x}`)); L.push(""); break;
+    case "callout": L.push(`> ${b.text}`,""); break;
+    case "kpis": L.push(b.items.map(k=>`**${k.l}:** ${k.v}`).join(" · "),""); break;
+    case "table": L.push(`| ${b.head.join(" | ")} |`,`|${b.head.map(()=>"---").join("|")}|`,...b.rows.map(r=>`| ${r.map(cellMd).join(" | ")} |`),""); break;
+    case "chart": if(!b.pdfOnly) L.push(`_Gráfico: ${b.title}_`,""); break;
+    case "verdict": L.push(`**Parecer: ${b.call}** · confiança ${b.conf} · matriz ${b.score!=null?nf(b.score,1):"—"}/5 sobre ${pct(b.cov,0)} dos pesos`,""); break;
+    case "swot": [["S","Forças"],["W","Fraquezas"],["O","Oportunidades"],["T","Ameaças"]].forEach(([k,l])=>{L.push(`**${l}**`,...b[k].map(x=>`- ${x}`),"");}); break;
+  }});
+  return L.join("\n");
+}
+
+/* ---------- saída PDF (pdfmake, A4) ---------- */
+function loadScript(src){ return new Promise((ok,fail)=>{ const s=document.createElement("script"); s.src=src; s.onload=ok; s.onerror=()=>fail(new Error("não carregou "+src)); document.head.appendChild(s); }); }
+async function ensurePdfMake(){ if(window.pdfMake?.vfs) return; await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/pdfmake.min.js"); await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/vfs_fonts.js"); }
+const runsPdf = s => String(s).split(/(\*\*.+?\*\*)/).filter(Boolean).map(x=>x.startsWith("**")?{text:x.slice(2,-2),bold:true}:{text:x});
+function cellPdf(c,num,small){ const base={fontSize:small?7.5:8.5,alignment:num?"right":"left"};
+  if(c&&typeof c==="object"){ if(c.cls&&CLS_PDF[c.cls]) return {...base,text:CLS[c.cls][1],color:CLS_PDF[c.cls],bold:true};
+    if(c.link) return {...base,text:c.text,link:c.link,color:"#1c48c9"}; if(c.cls==="b") return {...base,text:c.text,bold:true};
+    if(c.cls==="neg") return {...base,text:c.text,color:"#b3261e",bold:true}; if(c.cls==="pos") return {...base,text:c.text,color:"#1d7a46",bold:true}; if(c.cls==="est") return {...base,text:c.text,color:"#a86500",bold:true}; return {...base,text:String(c.text)}; }
+  return {...base,text:String(c??"")}; }
+function docPdf(doc){
+  const {meta,blocks}=doc, W=453; const content=[];
+  // capa
+  content.push({text:"OMEGA ACADEMIA · INTELIGÊNCIA DE MERCADO",style:"eyebrow",margin:[0,90,0,10]},{text:meta.title,style:"coverTitle"},{text:meta.subtitle,style:"coverSub",margin:[0,6,0,36]},
+    {table:{widths:[110,"*"],body:[["Preparado por",meta.author],["Destinatário",meta.to],["Data",meta.date],["Endereço",meta.display],["Coordenadas",meta.coords]].map(([a,b])=>[{text:a,style:"metaK"},{text:b,style:"metaV"}])},layout:"noBorders"},
+    {margin:[0,36,0,0],table:{widths:["*",110],body:[[{text:[{text:"PARECER PRELIMINAR\n",style:"eyebrow",color:"#ffffff"},{text:meta.call.toUpperCase(),fontSize:22,bold:true,color:"#ffffff"},{text:`\nConfiança ${meta.conf} · cobertura ${pct(meta.cov,0)}`,fontSize:9,color:"#ffffff"}],fillColor:CALL_COLOR[meta.call],margin:[14,12,14,12]},{text:[{text:meta.score!=null?nf(meta.score,1):"—",fontSize:26,bold:true},{text:" / 5\nmatriz parcial",fontSize:9}],alignment:"center",fillColor:"#eef1f4",margin:[6,14,6,10]}]]},layout:"noBorders"},
+    {text:"Documento preliminar elaborado com dados públicos. Não substitui visita técnica, pesquisa local e validação comercial, e não aprova investimento.",style:"note",margin:[0,40,0,0]},
+    {text:"",pageBreak:"after"},
+    {toc:{title:{text:"Sumário",style:"h1"},numberStyle:{bold:true},textStyle:{fontSize:10.5,lineHeight:1.5}}});
+  blocks.forEach(b=>{ switch(b.t){
+    case "h1": content.push({text:`${b.appendix?"":b.n+". "}${b.text}`,style:"h1",tocItem:true,pageBreak:"before",tocMargin:b.appendix?[0,6,0,0]:[0,0,0,0]}); break;
+    case "h2": content.push({text:b.text,style:"h2",headlineLevel:2}); break;
+    case "p": content.push({text:runsPdf(b.text),style:"p"}); break;
+    case "src": content.push({text:b.text,style:"src"}); break;
+    case "list": content.push({[b.ordered?"ol":"ul"]:b.items.map(x=>({text:runsPdf(x),margin:[0,0,0,4]})),style:"p"}); break;
+    case "callout": content.push({table:{widths:["*"],body:[[{text:runsPdf(b.text),fontSize:9,margin:[8,6,8,6],fillColor:b.kind==="bad"?"#fbe5e3":b.kind==="info"?"#e2edf9":"#fbf0dc"}]]},layout:{hLineWidth:()=>0,vLineWidth:i=>i===0?3:0,vLineColor:()=>b.kind==="bad"?"#b3261e":b.kind==="info"?"#1c5fa8":"#a86500"},margin:[0,4,0,10]}); break;
+    case "kpis": { const per=Math.min(b.items.length,4); const rows=[]; for(let i=0;i<b.items.length;i+=per) rows.push(b.items.slice(i,i+per));
+      rows.forEach(r=>content.push({columnGap:8,margin:[0,0,0,8],columns:r.map(k=>({table:{widths:["*"],body:[[{text:[{text:k.l+"\n",fontSize:7.5,color:"#5b6b78"},{text:String(k.v),fontSize:15,bold:true,color:"#132029"}],margin:[6,5,6,5]}]]},layout:{hLineColor:()=>"#d5dce3",vLineColor:()=>"#d5dce3"}}))})); break; }
+    case "table": content.push({table:{headerRows:1,widths:b.widths||b.head.map(()=>"*"),body:[b.head.map((x,i)=>({text:x.toUpperCase(),fontSize:b.small?6.5:7,bold:true,color:"#5b6b78",fillColor:"#eef1f4",alignment:b.num?.includes(i)?"right":"left"})),...b.rows.map(r=>r.map((c,i)=>cellPdf(c,b.num?.includes(i),b.small)))]},layout:{hLineWidth:(i,n)=>i===0||i===n.table.body.length?0:0.5,vLineWidth:()=>0,hLineColor:()=>"#d5dce3",paddingTop:()=>3,paddingBottom:()=>3},margin:[0,2,0,8]}); break;
+    case "chart": content.push({text:b.title,style:"figT",headlineLevel:2},{svg:b.svg(THEME_PDF),width:b.pdfWidth||W,margin:[0,2,0,2]}); if(b.caption) content.push({text:b.caption,style:"src"}); break;
+    case "verdict": content.push({table:{widths:["*",90],body:[[{text:[{text:b.call.toUpperCase(),fontSize:18,bold:true,color:"#ffffff"},{text:`\nConfiança ${b.conf} · cobertura dos pesos ${pct(b.cov,0)}`,fontSize:9,color:"#ffffff"}],fillColor:CALL_COLOR[b.call],margin:[10,8,10,8]},{text:[{text:b.score!=null?nf(b.score,1):"—",fontSize:20,bold:true},{text:" / 5",fontSize:9}],alignment:"center",fillColor:"#eef1f4",margin:[4,10,4,8]}]]},layout:"noBorders",margin:[0,0,0,12]}); break;
+    case "swot": { const q=(k,l,c,bg)=>({stack:[{text:l.toUpperCase(),bold:true,fontSize:8,color:c,margin:[0,0,0,4]},{ul:b[k].map(x=>({text:x,fontSize:8.5,margin:[0,0,0,3]}))}],fillColor:bg,margin:[8,8,8,8]});
+      content.push({table:{widths:["*","*"],body:[[q("S","Forças","#1d7a46","#e3f3ea"),q("W","Fraquezas","#b3261e","#fbe5e3")],[q("O","Oportunidades","#1c5fa8","#e2edf9"),q("T","Ameaças","#a86500","#fbf0dc")]]},layout:{hLineColor:()=>"#ffffff",vLineColor:()=>"#ffffff",hLineWidth:()=>3,vLineWidth:()=>3},margin:[0,4,0,10]}); break; }
+  }});
+  return {pageSize:"A4",pageMargins:[85,70,57,57],info:{title:`${meta.title} · ${meta.addrShort}`,author:meta.author,subject:"Estudo de mercado Omega Academia"},
+    header:(p)=>p<=1?null:{columns:[{text:`Estudo de Mercado · ${meta.addrShort}`,fontSize:7.5,color:"#5b6b78"},{text:"Omega Academia",fontSize:7.5,color:"#5b6b78",alignment:"right"}],margin:[85,30,57,0]},
+    footer:(p,c)=>p<=1?null:{columns:[{text:`Preliminar · dados públicos · ${meta.date}`,fontSize:7.5,color:"#5b6b78"},{text:`${p} / ${c}`,fontSize:7.5,color:"#5b6b78",alignment:"right"}],margin:[85,20,57,0]},
+    content, pageBreakBefore:(cur,next)=>cur.headlineLevel===2 && next.length<2,
+    defaultStyle:{font:"Roboto",fontSize:9.5,color:"#132029",lineHeight:1.25},
+    styles:{eyebrow:{fontSize:7.5,bold:true,color:"#5b6b78",characterSpacing:1.2},coverTitle:{fontSize:28,bold:true,color:"#132029"},coverSub:{fontSize:13,color:"#2b3a46"},metaK:{fontSize:8.5,color:"#5b6b78",margin:[0,3,0,3]},metaV:{fontSize:10,margin:[0,3,0,3]},
+      h1:{fontSize:17,bold:true,color:"#1c48c9",margin:[0,0,0,10]},h2:{fontSize:11.5,bold:true,color:"#2b3a46",margin:[0,10,0,5]},p:{margin:[0,0,0,7],alignment:"justify"},src:{fontSize:7.5,italics:true,color:"#5b6b78",margin:[0,0,0,8]},figT:{fontSize:9,bold:true,margin:[0,6,0,2]},note:{fontSize:8.5,italics:true,color:"#5b6b78"}}};
+}
+async function makePdf(doc,filename){
+  await ensurePdfMake();
+  return new Promise((ok,fail)=>{ try{ const pdf=pdfMake.createPdf(docPdf(doc)); pdf.getBlob(b=>{ download(filename,b,"application/pdf"); ok(b); }); }catch(e){ fail(e); } });
+}
+
+/* ---------- render na tela ---------- */
+function render(S,R){
+  $("#intro").hidden=true; const el=$("#report"); el.hidden=false;
+  const doc=buildDoc(S,R); window.__DOC__=doc;
+  if(map){ map.remove(); map=null; }
+  el.innerHTML=docHTML(doc);
+  drawMap(S,R);
+  const fname=ext=>`estudo-mercado-omega-${slugAddr(S)}.${ext}`;
+  $("#bPdf").onclick=async()=>{ const b=$("#bPdf"); b.disabled=true; b.textContent="Gerando PDF…"; try{ await makePdf(doc,fname("pdf")); b.textContent="PDF baixado"; }catch(e){ console.error(e); b.textContent="Não foi possível gerar o PDF"; } setTimeout(()=>{b.disabled=false;b.textContent="Baixar PDF executivo";},3000); };
+  $("#bMd").onclick=()=>download(fname("md"),docMarkdown(doc),"text/markdown");
+  $("#bCopy").onclick=async()=>{ try{ await navigator.clipboard.writeText(docMarkdown(doc)); $("#bCopy").textContent="Copiado"; }catch(e){ $("#bCopy").textContent="Use Baixar .md"; } setTimeout(()=>$("#bCopy").textContent="Copiar texto",2500); };
+  $("#bJson").onclick=()=>download(fname("json"),JSON.stringify({consulta:S,resultado:R},(k,v)=>k==="months"?undefined:v,2),"application/json");
+  $("#bRetry").onclick=()=>{ $("#addr").value=`${S.geo.lat.toFixed(6)}, ${S.geo.lon.toFixed(6)}`; run(); };
+  el.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+const slugAddr = S => norm(S.geo.road+" "+S.geo.house+" "+S.geo.city).replace(/ /g,"-").slice(0,60)||"endereco";
+function download(name,data,type){const a=document.createElement("a");a.href=URL.createObjectURL(data instanceof Blob?data:new Blob([data],{type}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);}
+
+function drawMap(S,R){
+  if(typeof L==="undefined"){ $("#map").innerHTML='<p class="note" style="padding:12px">Mapa indisponível (biblioteca não carregou).</p>'; return; }
+  if(map){ map.remove(); map=null; }
+  const {lat,lon}=S.geo; map=L.map("map",{scrollWheelZoom:false,zoomAnimation:false,fadeAnimation:false}).setView([lat,lon],14);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",{maxZoom:19,subdomains:"abcd",attribution:"© OpenStreetMap · © CARTO"}).addTo(map);
+  const acc=getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()||"#1c48c9";
+  [500,1000,2000].forEach(r=>L.circle([lat,lon],{radius:r,color:acc,weight:1.5,fill:r===500,fillOpacity:.06,dashArray:r===2000?null:"4 4"}).addTo(map));
+  const dot=(c,col,r=6)=>L.circleMarker([c.lat,c.lon],{radius:r,color:"#fff",weight:1.5,fillColor:col,fillOpacity:1});
+  R.comp.forEach(c=>dot(c,"#d6452d").bindPopup(`<b>${esc(c.name)}</b><br>${esc(c.seg)} · ${nf(c.d)} m`).addTo(map));
+  R.omega.forEach(c=>dot(c,"#f2b705",8).bindPopup(`<b>${esc(c.name)}</b><br>Omega · ${nf(c.d/1000,1)} km`).addTo(map));
+  R.poi.filter(p=>p.k==="Estações (trem/metrô)").forEach(p=>dot(p,"#2a9d8f",5).bindPopup(esc(p.name||"Estação")).addTo(map));
+  L.circleMarker([lat,lon],{radius:9,color:"#fff",weight:2,fillColor:acc,fillOpacity:1}).bindPopup("Imóvel analisado").addTo(map);
+  map.fitBounds(L.latLng(lat,lon).toBounds(4400),{animate:false});
+}
+
+/* ===================== histórico e comparação ===================== */
+const HKEY="omega_hist_v1";
+function loadHist(){ try{ return JSON.parse(localStorage.getItem(HKEY)||"[]"); }catch(e){ return []; } }
+function reviveS(S){ S.started=new Date(S.started); S.finished=new Date(S.finished); return S; }
+function saveHistory(S,R){
+  let h=loadHist(); const id=Date.now().toString(36);
+  h.unshift({id, at:S.finished.toISOString(), label:[S.geo.road,S.geo.house].filter(Boolean).join(", ")||S.query, city:S.geo.city, call:R.parecer.call, score:R.score.value, cov:R.score.coverage, S});
+  h=h.slice(0,15);
+  for(;;){ try{ localStorage.setItem(HKEY,JSON.stringify(h)); break; }catch(e){ pruneCache(); if(h.length<=1) break; h.pop(); } }
+  renderHist();
+}
+function renderHist(){
+  const h=loadHist(); $("#histBox").hidden=!h.length;
+  $("#hist").innerHTML=h.map(x=>`<div class="hitem"><input type="checkbox" aria-label="Selecionar para comparar" data-id="${x.id}"><button type="button" data-open="${x.id}"><b>${esc(x.label)}</b><small>${esc(x.city||"")} · ${esc(new Date(x.at).toLocaleDateString("pt-BR"))} · ${esc(x.call)} · ${x.score!=null?nf(x.score,1):"—"}/5 (${pct(x.cov,0)})</small></button></div>`).join("");
+  $("#hist").querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{const x=loadHist().find(y=>y.id===b.dataset.open); if(!x) return; const S=reviveS(x.S); $("#addr").value=S.query; const R=build(S); render(S,R); window.__ANALISE__={S,R};});
+  const upd=()=>{$("#bCmp").disabled=$("#hist").querySelectorAll("input:checked").length<2;};
+  $("#hist").querySelectorAll("input").forEach(c=>c.onchange=upd); upd();
+}
+function compare(){
+  const ids=[...$("#hist").querySelectorAll("input:checked")].map(c=>c.dataset.id).slice(0,4);
+  const items=loadHist().filter(x=>ids.includes(x.id)).map(x=>{const S=reviveS(x.S); return {x,S,R:build(S)};});
+  const covs=new Set(items.map(i=>Math.round(i.R.score.coverage*100)));
+  const row=(lbl,f)=>`<tr><td>${lbl}</td>${items.map(i=>`<td class="n">${f(i)}</td>`).join("")}</tr>`;
+  const base=i=>i.R.fin.ok?i.R.fin.scen.find(s=>s.n==="Base"):null;
+  let h=`<section class="block"><span class="eyebrow">Comparação de pontos</span><h2>${items.length} pontos lado a lado</h2>
+  ${covs.size>1?`<div class="callout">As coberturas da matriz são diferentes (${[...covs].map(c=>c+"%").join(", ")}). Compare as notas por dimensão, não o total.</div>`:""}
+  <div class="tbl"><table><thead><tr><th>Indicador</th>${items.map(i=>`<th class="n">${esc(i.x.label)}</th>`).join("")}</tr></thead><tbody>
+  ${row("Parecer",i=>esc(i.R.parecer.call))}
+  ${row("Matriz parcial",i=>i.R.score.value!=null?nf(i.R.score.value,1)+" / 5":"—")}
+  ${row("Cobertura dos pesos",i=>pct(i.R.score.coverage,0))}
+  ${Object.entries(CRIT).map(([k,c])=>row(`${c.n} (${c.w}%)`,i=>i.R.score.items[k]?.v??"—")).join("")}
+  ${row("Moradores em 2 km (est.)",i=>i.R.pop2k?nf(roundSig(i.R.pop2k)):"—")}
+  ${row("Concorrentes em 1 km",i=>i.S.errs.fit?"—":i.R.compR.r1000)}
+  ${row("Concorrentes em 2 km",i=>i.S.errs.fit?"—":i.R.compR.r2000)}
+  ${row("Moradores por estabelecimento",i=>i.R.residentsPerGym?nf(roundSig(i.R.residentsPerGym)):"—")}
+  ${row("Omega mais próxima",i=>i.R.omega[0]?nf(i.R.omega[0].d/1000,1)+" km":"nenhuma mapeada")}
+  ${row("Pontos de ônibus em 500 m",i=>i.R.poiCat["Pontos de ônibus"]?.r500??"—")}
+  ${row("Estação mais próxima",i=>{const n=i.R.poiCat["Estações (trem/metrô)"]?.near; return n?nf(n.d)+" m":"—";})}
+  ${row("Equilíbrio (alunos)",i=>i.R.fin.ok&&i.R.fin.be?nf(Math.ceil(i.R.fin.be)):"—")}
+  ${row("Resultado/mês, cenário base",i=>{const b=base(i); return b?brl(b.res):"—";})}
+  ${row("Data da consulta",i=>esc(fmtDate(i.S.finished)))}
+  </tbody></table></div><p class="note">Clique em uma análise salva para reabrir o relatório completo.</p></section>`;
+  if(map){ map.remove(); map=null; }
+  $("#intro").hidden=true; const el=$("#report"); el.hidden=false; el.innerHTML=h; el.scrollIntoView({behavior:"smooth",block:"start"});
+}
+$("#bCmp").onclick=compare;
+$("#bClr").onclick=()=>{ if($("#bClr").dataset.armed){ try{localStorage.removeItem(HKEY);}catch(e){} delete $("#bClr").dataset.armed; $("#bClr").textContent="Limpar"; renderHist(); } else { $("#bClr").dataset.armed="1"; $("#bClr").textContent="Confirmar limpeza"; setTimeout(()=>{delete $("#bClr").dataset.armed; $("#bClr").textContent="Limpar";},4000);} };
+renderHist();
+$("#f").addEventListener("submit",run);
+
+/* ===================== integração com a Central de Organização ===================== */
+// Aberto dentro da Central (iframe do mesmo site): cada estudo concluído vai para a Central guardar,
+// e a Central pode reabrir um estudo guardado ou definir quem assina o relatório.
+const HOST=(()=>{ try{ return window.parent!==window && window.parent.location.origin===location.origin ? window.parent : null; }catch(e){ return null; } })();
+function notifyHost(S,R){
+  if(!HOST) return;
+  HOST.postMessage({type:"omega:estudo", estudo:{
+    address:[S.geo.road,S.geo.house].filter(Boolean).join(", ")||S.query, city:[S.geo.city,S.geo.uf].filter(Boolean).join(" - ")||null,
+    lat:S.geo.lat, lon:S.geo.lon, verdict:R.parecer.call, score:R.score.value, coverage:R.score.coverage,
+    analyzedAt:S.finished.toISOString(), state:JSON.parse(JSON.stringify(S))}}, location.origin);
+}
+if(HOST){
+  window.addEventListener("message",ev=>{
+    if(ev.source!==HOST||ev.origin!==location.origin) return;
+    const m=ev.data||{};
+    if(m.type==="omega:abrir"&&m.state){ const S=reviveS(m.state); $("#addr").value=S.query; const R=build(S); render(S,R); window.__ANALISE__={S,R}; }
+    if(m.type==="omega:config"&&m.autor) $("#autor").value=m.autor;
+  });
+  HOST.postMessage({type:"omega:pronto"},location.origin);
+}
+</script>
+</body>
+</html>

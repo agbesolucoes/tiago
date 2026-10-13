@@ -4,6 +4,7 @@ import { appErrors, backupRuns } from "../db/schema";
 import type { Env } from "../env";
 import { newId } from "../lib/crypto";
 import { errorMessage, log, recordError } from "../lib/log";
+import { copyBackupToDrive, driveBackupEnabled } from "./drive-backup";
 import { packSnapshot, unpackSnapshot, type Snapshot } from "./snapshot";
 
 /** Tabelas que não entram no backup: sessões e dados de vida curta, que não fazem falta numa restauração. */
@@ -51,7 +52,7 @@ const counts = (s: Snapshot) => Object.fromEntries(Object.entries(s.tables).map(
  * Gera o backup cifrado no R2, confere lendo o arquivo de volta e aplica a retenção.
  * Cada execução fica em backup_runs; falhas também vão para app_errors.
  */
-export async function runBackup(deps: { db: Db; env: Env; now?: () => number }, trigger: "cron" | "manual") {
+export async function runBackup(deps: { db: Db; env: Env; now?: () => number; fetcher?: typeof fetch }, trigger: "cron" | "manual") {
   const { db, env } = deps;
   const now = deps.now?.() ?? Date.now();
   if (!backupConfigured(env)) throw new Error("backup não configurado: faltam o bucket BACKUPS ou a BACKUP_ENCRYPTION_KEY");
@@ -73,6 +74,14 @@ export async function runBackup(deps: { db: Db; env: Env; now?: () => number }, 
     await db.update(backupRuns).set({ status: "ok", objectKey: key, size: file.length, tables, finishedAt: Date.now() }).where(eq(backupRuns.id, id));
     const removed = await applyRetention(env.BACKUPS!, now);
     log("info", "backup.ok", { id, key, size: file.length, rows: Object.values(tables).reduce((a, b) => a + b, 0), removed });
+    // A cópia no Drive é um extra: se falhar, o backup continua valendo e o erro aparece na tela de operação.
+    if (driveBackupEnabled(env)) {
+      try {
+        await copyBackupToDrive({ db, env, fetcher: deps.fetcher }, `central-${key.split("/").pop()}`, file, now);
+      } catch (e) {
+        await recordError(db, "backup drive", e);
+      }
+    }
   } catch (e) {
     await db.update(backupRuns).set({ status: "failed", error: errorMessage(e).slice(0, 500), finishedAt: Date.now() }).where(eq(backupRuns.id, id));
     await recordError(db, "backup", e);

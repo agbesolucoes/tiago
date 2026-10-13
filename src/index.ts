@@ -101,7 +101,11 @@ app.get("/auth/callback", async (c) => {
     return c.redirect("/");
   } catch (err) {
     if (err instanceof AccessDenied) return c.redirect("/?erro=acesso");
-    if (err instanceof AuthError) return c.redirect("/?erro=login");
+    if (err instanceof AuthError) {
+      // O motivo vai para o log do servidor (ex.: "token endpoint 401" = chave secreta do Google errada).
+      log("warn", "auth.login_failed", { reason: err.message });
+      return c.redirect("/?erro=login");
+    }
     throw err;
   }
 });
@@ -239,7 +243,11 @@ app.get("/integrations/google/callback", requireMember, async (c) => {
 async function sameSecret(a: string, b: string) {
   const enc = new TextEncoder();
   const [x, y] = await Promise.all([crypto.subtle.digest("SHA-256", enc.encode(a)), crypto.subtle.digest("SHA-256", enc.encode(b))]);
-  return crypto.subtle.timingSafeEqual(x, y);
+  // Comparação em tempo constante feita à mão: crypto.subtle.timingSafeEqual só existe na Cloudflare, não no Node.
+  const [u, v] = [new Uint8Array(x), new Uint8Array(y)];
+  let diff = 0;
+  for (let i = 0; i < u.length; i++) diff |= u[i] ^ v[i];
+  return diff === 0;
 }
 
 app.post("/integrations/telegram/webhook", async (c) => {
@@ -255,6 +263,8 @@ app.post("/integrations/telegram/webhook", async (c) => {
 
 const DAILY_SUMMARY_CRON = "0 11 * * *";
 const BACKUP_CRON = "0 6 * * *";
+/** Os mesmos de `triggers.crons` no wrangler.jsonc; o servidor Node usa esta lista. */
+export const CRONS = ["*/5 * * * *", BACKUP_CRON, DAILY_SUMMARY_CRON];
 
 export default {
   fetch: app.fetch,
