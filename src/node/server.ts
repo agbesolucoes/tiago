@@ -14,6 +14,13 @@ import { startScheduler } from "./scheduler";
 // Servidor Node (Hostinger e afins): o mesmo app do Worker, com SQLite no lugar do D1,
 // uma pasta no lugar do R2 e um agendador no lugar dos Cron Triggers.
 
+// FixedLengthStream só existe na Cloudflare; no Node, o tamanho vai no cabeçalho content-length do próprio envio.
+(globalThis as { FixedLengthStream?: unknown }).FixedLengthStream ??= class extends TransformStream<Uint8Array, Uint8Array> {
+  constructor(_size: number) {
+    super();
+  }
+};
+
 if (existsSync(".env")) process.loadEnvFile(".env");
 const e = process.env;
 const cwd = process.cwd();
@@ -56,6 +63,7 @@ const env: Env = {
   BACKUP_TO_DRIVE: e.BACKUP_TO_DRIVE ?? "true",
   ANTHROPIC_API_KEY: e.ANTHROPIC_API_KEY,
   SECRETARY_MODEL: e.SECRETARY_MODEL,
+  ASSEMBLYAI_API_KEY: e.ASSEMBLYAI_API_KEY,
   DEV_LOGIN: e.DEV_LOGIN,
   PUSH_ON_WRITE: e.PUSH_ON_WRITE,
 };

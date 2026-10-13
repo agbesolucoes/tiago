@@ -101,6 +101,8 @@ A tela **Secretária** (`/secretaria`) recebe a ata de uma reunião (texto colad
 - **Confirmar:** `POST /api/secretary/drafts/:id/apply` cria projetos, tarefas e itens de checklist num lote só. A troca `ready → applied` é atômica, então dois cliques não duplicam. Responsável citado que não é membro vai para a descrição da tarefa.
 - **Reunião:** em Agenda → Registro da reunião, "Analisar com a secretária" leva pauta, resumo e decisões; as tarefas ficam ligadas ao compromisso.
 - **Telegram:** mandar o arquivo da ata para o bot (ou `/ata texto`) gera a mesma análise; o bot responde com a proposta, os botões "Criar tudo" e "Descartar" e um link para revisar na tela.
+- **Gravações:** com `ASSEMBLYAI_API_KEY`, a tela aceita áudio ou vídeo da reunião (até 300 MB) e o bot aceita áudio, mensagem de voz e vídeo (até 20 MB, limite do Telegram). `POST /api/secretary/recording` repassa a gravação em streaming à AssemblyAI (português, com separação de quem fala); o rascunho fica `transcribing` até a transcrição voltar e então segue para a análise como os outros. O cron de 5 minutos retoma transcrições interrompidas por um reinício do servidor.
+- **Ata:** a secretária também escreve a ata (participantes, assuntos, decisões, encaminhamentos) e lista as decisões. Na revisão a ata é editável e pode ser copiada ou baixada; escolhendo a reunião da agenda, a confirmação guarda ata e decisões no Registro da reunião (sem apagar o que já estava lá) e liga as tarefas a ela. Toda tarefa sai com prazo: o da ata ou um sugerido, avisado nos pontos de atenção.
 - **Personalizar:** dono e admins escrevem instruções próprias (estilo, regras da casa) em "Personalizar a secretária"; elas vão junto em cada análise.
 
 ## Monitoramento e backups

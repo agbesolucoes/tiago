@@ -24,6 +24,8 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   /** Modelo da secretária; o padrão está em src/integrations/secretary.ts. */
   SECRETARY_MODEL?: string;
+  /** Chave da AssemblyAI, que transcreve as gravações de reunião para a secretária. Sem ela, só texto e arquivos. */
+  ASSEMBLYAI_API_KEY?: string;
   /** "true" libera /auth/dev-login em localhost, para desenvolver sem Google. Nunca em produção. */
   DEV_LOGIN?: string;
   /** "false" desliga o envio imediato ao Google após cada gravação (fica só o cron). */

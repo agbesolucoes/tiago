@@ -19,7 +19,18 @@ export interface TgMessage {
   chat: { id: number; type: "private" | "group" | "supergroup" | "channel" };
   text?: string;
   caption?: string;
-  document?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
+  document?: TgFile;
+  audio?: TgFile & { title?: string };
+  voice?: TgFile;
+  video?: TgFile;
+  video_note?: TgFile;
+}
+
+export interface TgFile {
+  file_id: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
 }
 
 export interface TgUpdate {

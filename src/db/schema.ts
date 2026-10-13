@@ -511,7 +511,7 @@ export const reminderLog = sqliteTable("reminder_log", {
 
 // ---------- Secretária ----------
 
-export const secretaryStatuses = ["analyzing", "ready", "failed", "applied", "discarded"] as const;
+export const secretaryStatuses = ["transcribing", "analyzing", "ready", "failed", "applied", "discarded"] as const;
 
 /** Proposta da secretária: o que ela leu na ata e sugere criar. Nada vira tarefa sem confirmação. */
 export interface SecretaryProposal {
@@ -530,6 +530,9 @@ export interface SecretaryProposal {
     checklist: string[];
   }[];
   notes: string[];
+  /** Ata escrita pela secretária. Propostas antigas não têm. */
+  minutes?: string;
+  decisions?: string[];
 }
 
 export const secretaryDrafts = sqliteTable(
@@ -547,8 +550,12 @@ export const secretaryDrafts = sqliteTable(
     sourceName: text().notNull(),
     /** Reunião de origem: as tarefas criadas ficam ligadas a ela. */
     eventId: text().references(() => events.id, { onDelete: "set null" }),
-    /** Texto lido da ata (vazio para PDF, que vai direto para a análise). */
+    /** Texto lido da ata ou transcrição da gravação (vazio para PDF, que vai direto para a análise). */
     inputText: text(),
+    /** O que é inputText: ata em texto ou transcrição de gravação. */
+    inputKind: text({ enum: ["text", "transcript", "pdf"] }),
+    /** Transcrição em andamento no serviço de transcrição (AssemblyAI). */
+    transcriptId: text(),
     status: text({ enum: secretaryStatuses }).notNull().default("analyzing"),
     proposal: text({ mode: "json" }).$type<SecretaryProposal>(),
     error: text(),

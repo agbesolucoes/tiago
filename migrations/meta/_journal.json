@@ -64,6 +64,13 @@
       "when": 1791896680261,
       "tag": "0007_secretaria",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1791896719695,
+      "tag": "0009_transcricao",
+      "breakpoints": true
     }
   ]
 }

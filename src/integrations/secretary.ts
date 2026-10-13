@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { RequestContext } from "../api/context";
 import { auditInsert, ValidationError } from "../api/helpers";
 import type { Db } from "../db/client";
-import { events, memberships, priorities, projects, secretaryDrafts, taskItems, tasks, users, workspaces, type SecretaryProposal } from "../db/schema";
+import { events, meetingNotes, memberships, priorities, projects, secretaryDrafts, taskItems, tasks, users, workspaces, type SecretaryProposal } from "../db/schema";
 import type { Env } from "../env";
 import { newId } from "../lib/crypto";
 import { DocxError, docxToText } from "../lib/docx";
@@ -51,13 +51,17 @@ const proposalSchema = z.object({
       priority: outPriority,
       assigneeId: z.string().nullable().describe("id do membro da Central, só quando o responsável citado é claramente essa pessoa."),
       assigneeName: z.string().nullable().describe("Nome do responsável como aparece na ata, mesmo que não seja membro."),
-      dueDate: z.string().nullable().describe("Prazo no formato AAAA-MM-DD, só quando a ata indica um prazo."),
+      dueDate: z.string().nullable().describe("Prazo no formato AAAA-MM-DD: o da ata ou, se ela não indicar, um prazo sugerido."),
       projectId: z.string().nullable().describe("id de um projeto existente da Central ao qual a tarefa pertence."),
       projectRef: z.string().nullable().describe("ref de um projeto novo desta proposta ao qual a tarefa pertence."),
       checklist: z.array(z.string()).describe("Passos menores, quando a ata os detalha. Pode ser vazio."),
     }),
   ),
   notes: z.array(z.string()).describe("Pontos de atenção para quem revisa: pendências sem responsável, prazos ambíguos, decisões sem ação clara."),
+  minutes: z
+    .string()
+    .describe("A ata da reunião, pronta para guardar: participantes, pauta, resumo da discussão por assunto, decisões e encaminhamentos (responsável e prazo). Texto simples com títulos e listas com hífen."),
+  decisions: z.array(z.string()).describe("Decisões tomadas na reunião, uma frase cada."),
 });
 
 const BASE_INSTRUCTIONS = `Você é a secretária da Central de Organização, um sistema pessoal de tarefas, projetos e agenda.
@@ -67,14 +71,25 @@ Como trabalhar:
 - Transforme em tarefa cada ação, encaminhamento ou compromisso assumido na reunião. Não crie tarefas para assuntos apenas discutidos, sem ação.
 - Use títulos curtos e concretos, começando com verbo (ex.: "Enviar orçamento revisado ao cliente").
 - Quando a ata nomeia um responsável, preencha assigneeName. Preencha assigneeId só se o nome corresponder claramente a um dos membros listados.
-- Converta prazos relativos ("até sexta", "semana que vem") em datas usando a data de hoje informada. Se o prazo for vago, deixe dueDate vazio e explique em notes.
+- Converta prazos relativos ("até sexta", "semana que vem") em datas a partir da data da reunião (ou de hoje, quando a reunião não é informada).
+- Toda tarefa deve sair com prazo, para entrar na agenda de quem vai executá-la. Quando a ata não indica prazo, sugira uma data razoável pelo tamanho da tarefa (em geral uma semana depois da reunião) e liste em notes quais prazos foram sugeridos por você.
 - Ligue a tarefa a um projeto existente quando o assunto for claramente dele. Proponha projeto novo só para uma frente de trabalho com várias tarefas.
 - Prioridade: urgent só para o que a ata trata como urgente; high para prazos próximos ou itens críticos; medium no geral; low para o que é opcional.
-- Não invente informações que não estão na ata. Escreva sempre em português do Brasil.`;
+- Não invente informações que não estão na ata. Escreva sempre em português do Brasil.
+
+A ata (campo minutes):
+- Comece com o título da reunião, a data e os participantes identificados.
+- Organize por assunto: o que foi discutido, o que ficou decidido e o que ficou pendente.
+- Termine com os encaminhamentos: cada ação com responsável e prazo, igual às tarefas propostas.
+- Seja fiel ao conteúdo e objetiva; não copie a conversa palavra por palavra.
+
+Quando o material for a transcrição automática de uma gravação:
+- As falas vêm marcadas como "Pessoa A", "Pessoa B"... Descubra quem é quem pelo contexto (nomes citados, apresentações) e use os nomes na ata; se não der, mantenha "Pessoa A".
+- A transcrição pode ter erros de reconhecimento: corrija palavras óbvias pelo contexto e ignore conversas fora do assunto.`;
 
 // ---------- Chamada ao modelo ----------
 
-export type SecretaryInput = { kind: "text"; text: string } | { kind: "pdf"; data: string };
+export type SecretaryInput = { kind: "text" | "transcript"; text: string } | { kind: "pdf"; data: string };
 
 export interface SecretaryContext {
   today: string;
@@ -110,18 +125,21 @@ async function callClaude(env: Env, input: SecretaryInput, context: SecretaryCon
   if (input.kind === "pdf") content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: input.data } });
   content.push({
     type: "text",
-    text: `Dados da Central:\n${JSON.stringify(facts, null, 2)}\n\n${input.kind === "text" ? `Ata da reunião:\n<ata>\n${input.text}\n</ata>` : "A ata da reunião está no PDF acima."}\n\nProponha o que registrar.`,
+    text: `Dados da Central:\n${JSON.stringify(facts, null, 2)}\n\n${material(input)}\n\nEscreva a ata e proponha o que registrar.`,
   });
   try {
-    const response = await client.beta.messages.parse({
+    // Transcrições longas geram atas longas: streaming evita o limite de tempo de uma resposta única.
+    const response = await client.beta.messages
+      .stream({
       model: env.SECRETARY_MODEL || DEFAULT_MODEL,
-      max_tokens: 16000,
+      max_tokens: 32000,
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
       system,
       messages: [{ role: "user", content }],
       output_config: { effort: "medium", format: betaZodOutputFormat(proposalSchema) },
-    });
+      })
+      .finalMessage();
     if (response.stop_reason === "refusal") throw new SecretaryError("a análise foi recusada pelo modelo; revise o conteúdo da ata");
     if (response.stop_reason === "max_tokens") throw new SecretaryError("a ata é longa demais para uma análise só; divida em partes");
     if (!response.parsed_output) throw new SecretaryError("a resposta veio incompleta; tente de novo");
@@ -134,6 +152,12 @@ async function callClaude(env: Env, input: SecretaryInput, context: SecretaryCon
     if (e instanceof Anthropic.APIError) throw new SecretaryError(`a API do Claude falhou (${e.status ?? "sem conexão"}); tente de novo`);
     throw e;
   }
+}
+
+function material(input: SecretaryInput) {
+  if (input.kind === "pdf") return "A ata ou as anotações da reunião estão no PDF acima.";
+  if (input.kind === "transcript") return `Transcrição automática da gravação da reunião:\n<transcricao>\n${input.text}\n</transcricao>`;
+  return `Ata ou anotações da reunião:\n<ata>\n${input.text}\n</ata>`;
 }
 
 // ---------- Leitura do arquivo ----------
@@ -236,6 +260,8 @@ export function cleanProposal(raw: ProposalOutput, context: SecretaryContext): S
       ];
     }),
     notes: raw.notes.flatMap((n) => cut(n, 1000) ?? []).slice(0, 30),
+    minutes: cut(raw.minutes, 20_000) ?? "",
+    decisions: raw.decisions.flatMap((d) => cut(d, 1000) ?? []).slice(0, 100),
   };
 }
 
@@ -244,7 +270,8 @@ export function cleanProposal(raw: ProposalOutput, context: SecretaryContext): S
 /** Guarda a ata recebida; a análise é rodada à parte por runAnalysis. */
 export async function createDraft(
   ctx: Pick<RequestContext, "db" | "workspaceId" | "userId">,
-  d: { source: (typeof secretaryDrafts.$inferSelect)["source"]; sourceName: string; eventId: string | null; input: SecretaryInput },
+  /** Sem input: é uma gravação, que primeiro passa pela transcrição. */
+  d: { source: (typeof secretaryDrafts.$inferSelect)["source"]; sourceName: string; eventId: string | null; input: SecretaryInput | null },
 ) {
   const row = {
     id: newId(),
@@ -253,13 +280,13 @@ export async function createDraft(
     source: d.source,
     sourceName: d.sourceName.slice(0, 200),
     eventId: d.eventId,
-    inputText: d.input.kind === "text" ? d.input.text : null,
-    status: "analyzing" as const,
+    inputText: d.input && d.input.kind !== "pdf" ? d.input.text : null,
+    inputKind: d.input?.kind ?? ("transcript" as const),
+    status: d.input ? ("analyzing" as const) : ("transcribing" as const),
   };
   await ctx.db.insert(secretaryDrafts).values(row);
   return (await ctx.db.query.secretaryDrafts.findFirst({ where: eq(secretaryDrafts.id, row.id) }))!;
 }
-
 
 /** Roda a análise de um rascunho e grava o resultado (ready ou failed). Nunca lança. */
 export async function runAnalysis(deps: { db: Db; env: Env }, draftId: string, input: SecretaryInput) {
@@ -309,6 +336,11 @@ export const applyBody = z.strictObject({
       }),
     )
     .max(MAX_TASKS),
+  /** Ata revisada; com uma reunião ligada, vai para o resumo dela. */
+  minutes: z.string().max(40_000).nullable().optional(),
+  decisions: z.array(z.string().trim().min(1).max(1000)).max(100).optional(),
+  /** Reunião escolhida na revisão (substitui a do rascunho; null desliga). */
+  eventId: z.string().min(1).max(64).nullable().optional(),
 });
 export type ApplyBody = z.infer<typeof applyBody>;
 
@@ -326,6 +358,8 @@ export function proposalAsBody(p: SecretaryProposal): ApplyBody {
       projectRef: t.projectRef,
       checklist: t.checklist,
     })),
+    minutes: p.minutes || null,
+    decisions: p.decisions ?? [],
   };
 }
 
@@ -360,8 +394,16 @@ export async function applyProposal(ctx: RequestContext, draft: typeof secretary
     if (ms === null) issues.push({ path: `tasks.${i}.dueAt`, message: "data inválida" });
     return ms;
   });
+  const wantedEvent = body.eventId !== undefined ? body.eventId : draft.eventId;
+  const event = wantedEvent ? await ctx.db.query.events.findFirst({ where: and(eq(events.id, wantedEvent), eq(events.workspaceId, ctx.workspaceId)) }) : undefined;
+  // Reunião escolhida agora e que não existe é erro; a do rascunho pode ter sido apagada depois, e aí só se perde o vínculo.
+  if (body.eventId && !event) issues.push({ path: "eventId", message: "não encontrado neste workspace" });
   if (issues.length) throw new ValidationError(issues);
-  if (!body.tasks.length && !body.projects.length) throw new ValidationError([{ path: "tasks", message: "escolha ao menos uma tarefa ou projeto" }]);
+  const minutes = body.minutes?.trim() || null;
+  const decisions = body.decisions ?? [];
+  const savesNotes = !!event && (!!minutes || decisions.length > 0);
+  if (!body.tasks.length && !body.projects.length && !savesNotes)
+    throw new ValidationError([{ path: "tasks", message: event ? "escolha ao menos uma tarefa, projeto ou a ata" : "escolha ao menos uma tarefa ou projeto" }]);
 
   // Só a primeira confirmação passa de ready para applied.
   const now = Date.now();
@@ -373,9 +415,7 @@ export async function applyProposal(ctx: RequestContext, draft: typeof secretary
     .returning({ id: secretaryDrafts.id });
   if (!claimed.length) throw new DraftConflict("esta proposta já foi aplicada ou descartada");
 
-  const eventId = draft.eventId
-    ? ((await ctx.db.query.events.findFirst({ where: and(eq(events.id, draft.eventId), eq(events.workspaceId, ctx.workspaceId)) }))?.id ?? null)
-    : null;
+  const eventId = event?.id ?? null;
   const origin = `Criada pela secretária a partir de “${draft.sourceName}”.`;
   const stmts: any[] = [];
   for (const p of body.projects) {
@@ -400,7 +440,8 @@ export async function applyProposal(ctx: RequestContext, draft: typeof secretary
     stmts.push(ctx.db.insert(tasks).values(row), auditInsert(ctx, "task", id, "create", null, { title: row.title, via: "secretaria", draftId: draft.id }));
     (t.checklist ?? []).forEach((text, position) => stmts.push(ctx.db.insert(taskItems).values({ id: newId(), workspaceId: ctx.workspaceId, taskId: id, text, position })));
   });
-  stmts.push(ctx.db.update(secretaryDrafts).set({ result, updatedAt: now }).where(eq(secretaryDrafts.id, draft.id)));
+  if (savesNotes) stmts.push(...(await notesStatements(ctx, eventId!, minutes, decisions, draft.sourceName, now)));
+  stmts.push(ctx.db.update(secretaryDrafts).set({ result, eventId, updatedAt: now }).where(eq(secretaryDrafts.id, draft.id)));
   try {
     await ctx.db.batch(stmts as [any, ...any[]]);
   } catch (e) {
@@ -409,4 +450,25 @@ export async function applyProposal(ctx: RequestContext, draft: typeof secretary
     throw e;
   }
   return result;
+}
+
+/** Grava a ata e as decisões no registro da reunião, sem apagar o que já estava escrito nele. */
+async function notesStatements(ctx: RequestContext, eventId: string, minutes: string | null, decisions: string[], sourceName: string, now: number) {
+  const before = await ctx.db.query.meetingNotes.findFirst({ where: and(eq(meetingNotes.eventId, eventId), eq(meetingNotes.workspaceId, ctx.workspaceId)) });
+  const previous = before?.summary?.trim() || null;
+  const summary = !minutes || previous?.includes(minutes) ? previous : previous ? `${previous}\n\n---\nAta da secretária (${sourceName}):\n\n${minutes}` : minutes;
+  const known = new Set((before?.decisions ?? []).map((d) => d.text.trim().toLowerCase()));
+  const added = decisions.filter((d) => !known.has(d.toLowerCase())).map((text) => ({ id: newId(), text, taskId: null }));
+  const values = { agenda: before?.agenda ?? null, summary, decisions: [...(before?.decisions ?? []), ...added], updatedBy: ctx.userId, updatedAt: now };
+  return [
+    ctx.db
+      .insert(meetingNotes)
+      .values({ eventId, workspaceId: ctx.workspaceId, ...values })
+      .onConflictDoUpdate({ target: meetingNotes.eventId, set: values }),
+    auditInsert(ctx, "meeting_notes", eventId, before ? "update" : "create", before ? { summary: before.summary, decisions: before.decisions } : null, {
+      summary,
+      decisions: values.decisions,
+      via: "secretaria",
+    }),
+  ];
 }

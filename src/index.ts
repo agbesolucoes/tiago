@@ -15,7 +15,8 @@ import { auditLog, integrationAccounts, users } from "./db/schema";
 import type { Env } from "./env";
 import { refreshCalendarList, syncAll, syncWorkspace } from "./integrations/calendar-sync";
 import { pruneReminders, sendReminders } from "./integrations/reminders";
-import { handleUpdate, sendDailySummaries, telegramEnabled } from "./integrations/telegram-bot";
+import { handleUpdate, notifyDraft, sendDailySummaries, telegramEnabled } from "./integrations/telegram-bot";
+import { resumeTranscriptions } from "./integrations/transcription";
 import type { TgUpdate } from "./integrations/telegram-client";
 import { newId } from "./lib/crypto";
 import { log, recordError } from "./lib/log";
@@ -292,6 +293,7 @@ export default {
     else {
       ctx.waitUntil(run("sync", () => syncAll({ db, env })));
       ctx.waitUntil(run("lembretes", () => sendReminders({ db, env })));
+      ctx.waitUntil(run("transcricao", () => resumeTranscriptions({ db, env }, (d) => notifyDraft({ db, env }, d))));
     }
   },
 } satisfies ExportedHandler<Env>;

@@ -3,6 +3,8 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import { events, secretaryDrafts, workspaces } from "../db/schema";
 import { ANALYSIS_TIMEOUT, applyBody, applyProposal, createDraft, DraftConflict, MinutesError, readMinutes, runAnalysis, secretaryEnabled, type SecretaryInput } from "../integrations/secretary";
+import { MAX_RECORDING_BYTES, startTranscript, transcribeRecording, TRANSCRIPTION_STALE, transcriptionEnabled, TranscriptionError, uploadRecording } from "../integrations/transcription";
+import { recordError } from "../lib/log";
 import { requireRole, type AppEnv, type RequestContext } from "./context";
 import { auditInsert, notFound, parseBody, serialize, ValidationError } from "./helpers";
 
@@ -28,16 +30,20 @@ type Draft = typeof secretaryDrafts.$inferSelect;
 
 function view(d: Draft, full = true) {
   // Servidor reiniciado no meio da análise: ela não vai mais terminar.
-  const stale = d.status === "analyzing" && d.updatedAt < Date.now() - ANALYSIS_TIMEOUT;
+  const staleAnalysis = d.status === "analyzing" && d.updatedAt < Date.now() - ANALYSIS_TIMEOUT;
+  // Transcrição sem sinal de vida: o envio da gravação caiu antes de chegar ao serviço.
+  const staleTranscript = d.status === "transcribing" && d.updatedAt < Date.now() - TRANSCRIPTION_STALE;
+  const stale = staleAnalysis || staleTranscript;
   return serialize({
     id: d.id,
     source: d.source,
     sourceName: d.sourceName,
     eventId: d.eventId,
+    inputKind: d.inputKind,
     status: stale ? "failed" : d.status,
-    error: stale ? "a análise não terminou; tente de novo" : d.error,
+    error: staleTranscript ? "a gravação não chegou ao serviço de transcrição; envie de novo" : staleAnalysis ? "a análise não terminou; tente de novo" : d.error,
     canRetry: (stale || d.status === "failed") && !!d.inputText,
-    ...(full && { proposal: d.proposal, result: d.result }),
+    ...(full && { proposal: d.proposal, result: d.result, transcript: d.inputKind === "transcript" ? d.inputText : null }),
     taskCount: d.proposal?.tasks.length ?? 0,
     projectCount: d.proposal?.projects.length ?? 0,
     createdAt: d.createdAt,
@@ -65,7 +71,7 @@ export function registerSecretary(api: Hono<AppEnv>) {
       ctx.db.query.workspaces.findFirst({ where: eq(workspaces.id, ctx.workspaceId) }),
       ctx.db.select().from(secretaryDrafts).where(eq(secretaryDrafts.workspaceId, ctx.workspaceId)).orderBy(desc(secretaryDrafts.createdAt)).limit(20),
     ]);
-    return c.json({ enabled: secretaryEnabled(c.env), instructions: ws?.secretaryInstructions ?? null, drafts: drafts.map((d) => view(d, false)) });
+    return c.json({ enabled: secretaryEnabled(c.env), transcription: secretaryEnabled(c.env) && transcriptionEnabled(c.env), instructions: ws?.secretaryInstructions ?? null, drafts: drafts.map((d) => view(d, false)) });
   });
 
   api.put("/secretary/settings", async (c) => {
@@ -105,6 +111,42 @@ export function registerSecretary(api: Hono<AppEnv>) {
     return c.json(view(draft), 202);
   });
 
+  /**
+   * Gravação de reunião (áudio ou vídeo), enviada crua no corpo e repassada em streaming à AssemblyAI.
+   * A transcrição e a análise seguem em segundo plano; a tela acompanha pelo GET do rascunho.
+   */
+  api.post("/secretary/recording", async (c) => {
+    const ctx = c.get("ctx");
+    if (!secretaryEnabled(c.env)) return c.json({ error: "a secretária não está ligada: falta a chave ANTHROPIC_API_KEY no servidor" }, 409);
+    if (!transcriptionEnabled(c.env)) return c.json({ error: "a transcrição não está ligada: falta a chave ASSEMBLYAI_API_KEY no servidor" }, 409);
+    const name = (c.req.query("name") ?? "").trim().slice(0, 200) || "Gravação de reunião";
+    const eventId = c.req.query("eventId") || null;
+    if (eventId) {
+      const ev = await ctx.db.query.events.findFirst({ where: and(eq(events.id, eventId), eq(events.workspaceId, ctx.workspaceId)) });
+      if (!ev) throw new ValidationError([{ path: "eventId", message: "não encontrado neste workspace" }]);
+    }
+    const size = Number(c.req.header("content-length"));
+    if (!size) throw new ValidationError([{ path: "file", message: "gravação vazia" }]);
+    if (size > MAX_RECORDING_BYTES) throw new ValidationError([{ path: "file", message: "gravação maior que 300 MB; corte em partes ou exporte só o áudio" }]);
+    const body = c.req.raw.body;
+    if (!body) throw new ValidationError([{ path: "file", message: "gravação ausente" }]);
+
+    const draft = await createDraft(ctx, { source: "web", sourceName: name, eventId, input: null });
+    const deps = { db: ctx.db, env: c.env };
+    // O envio acontece dentro da requisição: o corpo só existe enquanto ela está aberta.
+    try {
+      const transcriptId = await startTranscript(c.env, await uploadRecording(c.env, body));
+      await ctx.db.update(secretaryDrafts).set({ transcriptId, updatedAt: Date.now() }).where(eq(secretaryDrafts.id, draft.id));
+    } catch (e) {
+      if (!(e instanceof TranscriptionError)) await recordError(ctx.db, "transcricao envio", e);
+      const error = e instanceof TranscriptionError ? e.message : "não consegui enviar a gravação; tente de novo";
+      await ctx.db.update(secretaryDrafts).set({ status: "failed", error, updatedAt: Date.now() }).where(eq(secretaryDrafts.id, draft.id));
+      return c.json(view(await getDraft(ctx, draft.id)), 202);
+    }
+    c.executionCtx.waitUntil(transcribeRecording(deps, draft.id, null));
+    return c.json(view(await getDraft(ctx, draft.id)), 202);
+  });
+
   api.get("/secretary/drafts/:id", async (c) => c.json(view(await getDraft(c.get("ctx"), c.req.param("id")))));
 
   api.post("/secretary/drafts/:id/retry", async (c) => {
@@ -113,7 +155,8 @@ export function registerSecretary(api: Hono<AppEnv>) {
     const draft = await getDraft(ctx, c.req.param("id"));
     if (!view(draft).canRetry) return c.json({ error: "esta análise não pode ser repetida; envie a ata de novo" }, 409);
     await ctx.db.update(secretaryDrafts).set({ status: "analyzing", error: null, updatedAt: Date.now() }).where(eq(secretaryDrafts.id, draft.id));
-    c.executionCtx.waitUntil(runAnalysis({ db: ctx.db, env: c.env }, draft.id, { kind: "text", text: draft.inputText! }));
+    const kind = draft.inputKind === "transcript" ? "transcript" : "text";
+    c.executionCtx.waitUntil(runAnalysis({ db: ctx.db, env: c.env }, draft.id, { kind, text: draft.inputText! }));
     return c.json(view(await getDraft(ctx, draft.id)), 202);
   });
 

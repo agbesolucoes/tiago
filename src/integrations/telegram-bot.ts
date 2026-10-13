@@ -26,8 +26,9 @@ import { addMinutes, parseWhen } from "../lib/nl-date";
 import { listOccurrences } from "../lib/occurrences";
 import { localDayRange, parseDateTime } from "../lib/time";
 import { enqueueStatements, processJobs } from "./calendar-sync";
+import { transcribeRecording, transcriptionEnabled } from "./transcription";
 import { applyProposal, createDraft, DraftConflict, MinutesError, proposalAsBody, readMinutes, runAnalysis, secretaryEnabled, type SecretaryInput } from "./secretary";
-import { TelegramClient, type InlineButton, type TgMessage, type TgUpdate } from "./telegram-client";
+import { TelegramClient, TelegramError, type InlineButton, type TgFile, type TgMessage, type TgUpdate } from "./telegram-client";
 
 export interface BotDeps {
   db: Db;
@@ -148,6 +149,8 @@ type Outcome = "ok" | "duplicate" | "ignored";
 async function onMessage(deps: BotDeps, msg: TgMessage): Promise<Outcome> {
   // Só conversa privada: em grupo, qualquer um leria as respostas.
   if (msg.chat.type !== "private" || !msg.from) return "ignored";
+  const recording = recordingOf(msg);
+  if (recording) return onRecording(deps, msg, recording);
   if (msg.document) return onDocument(deps, msg);
   if (!msg.text) return "ignored";
   const text = msg.text.trim();
@@ -555,6 +558,61 @@ async function onDocument(deps: BotDeps, msg: TgMessage): Promise<Outcome> {
   return "ok";
 }
 
+/** Áudio, mensagem de voz, vídeo ou arquivo de áudio/vídeo enviado como documento. */
+function recordingOf(msg: TgMessage): { file: TgFile; name: string } | null {
+  if (msg.voice) return { file: msg.voice, name: "Áudio do Telegram" };
+  if (msg.video_note) return { file: msg.video_note, name: "Vídeo do Telegram" };
+  if (msg.audio) return { file: msg.audio, name: msg.audio.file_name ?? msg.audio.title ?? "Áudio do Telegram" };
+  if (msg.video) return { file: msg.video, name: msg.video.file_name ?? "Vídeo do Telegram" };
+  const doc = msg.document;
+  if (doc && (/^(audio|video)\//.test(doc.mime_type ?? "") || RECORDING_EXT.test(doc.file_name ?? ""))) return { file: doc, name: doc.file_name ?? "Gravação do Telegram" };
+  return null;
+}
+
+const RECORDING_EXT = /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|wma|amr|webm|mp4|mov|mkv|avi|3gp)$/i;
+
+async function onRecording(deps: BotDeps, msg: TgMessage, rec: { file: TgFile; name: string }): Promise<Outcome> {
+  const found = await linkFor(deps.db, msg.from!.id);
+  if (!found) {
+    await say(deps, msg.chat.id, "Esta conta do Telegram ainda não está ligada à Central. Na Central, vá em Configurações, Telegram, gere um código e envie aqui: /vincular CÓDIGO");
+    return "ok";
+  }
+  const { link, ctx } = found;
+  if (!secretaryEnabled(deps.env) || !transcriptionEnabled(deps.env)) {
+    await say(deps, link.chatId, "A transcrição de reuniões ainda não está ligada na Central (faltam as chaves no servidor).");
+    return "ok";
+  }
+  if ((rec.file.file_size ?? 0) > MAX_TELEGRAM_FILE) {
+    await say(deps, link.chatId, "Essa gravação passa de 20 MB, o limite do Telegram para bots. Envie pela tela da Secretária na Central, que aceita gravações bem maiores.");
+    return "ok";
+  }
+  let audio: Uint8Array;
+  try {
+    const tg = client(deps.env);
+    const file = await tg.getFile(rec.file.file_id);
+    if (!file.file_path) throw new TelegramError("getFile", "sem arquivo");
+    audio = await tg.download(file.file_path);
+  } catch (e) {
+    await recordError(deps.db, "telegram gravação", e);
+    await say(deps, link.chatId, `Não consegui baixar “${rec.name}” do Telegram. Tente de novo.`);
+    return "ok";
+  }
+  const draft = await createDraft(ctx, { source: "telegram", sourceName: rec.name, eventId: null, input: null });
+  await say(deps, link.chatId, `Recebi “${draft.sourceName}”. Vou transcrever a reunião, escrever a ata e aviso aqui quando a proposta estiver pronta.`);
+  const job = transcribeRecording(deps, draft.id, audio, (done) => notifyDraft(deps, done)).catch((e) => recordError(deps.db, "secretaria telegram", e));
+  if (deps.defer) deps.defer(job);
+  else await job;
+  return "ok";
+}
+
+/** Avisa no Telegram que a proposta de um rascunho enviado por lá ficou pronta (ou falhou). */
+export async function notifyDraft(deps: BotDeps, draft: typeof secretaryDrafts.$inferSelect) {
+  if (draft.source !== "telegram" || !telegramEnabled(deps.env)) return;
+  const link = await deps.db.query.telegramLinks.findFirst({ where: and(eq(telegramLinks.userId, draft.userId), eq(telegramLinks.workspaceId, draft.workspaceId)) });
+  const ctx = link && (await contextFor(deps.db, link));
+  if (link && ctx) await sendProposal(deps, ctx, link, draft);
+}
+
 async function startMinutes(deps: BotDeps, ctx: RequestContext, link: Link, sourceName: string, input: SecretaryInput) {
   if (!secretaryEnabled(deps.env)) {
     await say(deps, link.chatId, "A secretária ainda não está ligada na Central.");
@@ -582,7 +640,8 @@ async function sendProposal(deps: BotDeps, ctx: RequestContext, link: Link, draf
   }
   const p = draft.proposal;
   if (!p.tasks.length && !p.projects.length) {
-    await say(deps, link.chatId, `Li “${draft.sourceName}” e não encontrei tarefas a criar.${p.summary ? `\n\n${p.summary}` : ""}`);
+    const minutes = p.minutes ? `\n\nA ata está na Central: ${url}` : "";
+    await say(deps, link.chatId, `Li “${draft.sourceName}” e não encontrei tarefas a criar.${p.summary ? `\n\n${p.summary}` : ""}${minutes}`);
     return;
   }
   const names = new Map(p.projects.map((x) => [x.ref, x.title]));
@@ -602,7 +661,7 @@ async function sendProposal(deps: BotDeps, ctx: RequestContext, link: Link, draf
     lines.push("", "Pontos de atenção:");
     for (const n of p.notes.slice(0, 5)) lines.push(`• ${n}`);
   }
-  lines.push("", `Para ajustar antes de criar, abra na Central: ${url}`);
+  lines.push("", `Para ler a ata e ajustar antes de criar, abra na Central: ${url}`);
   let text = lines.join("\n");
   if (text.length > 4000) text = `${text.slice(0, 3900)}…\n\nVeja a proposta completa na Central: ${url}`;
   const now = deps.now?.() ?? Date.now();

@@ -5,6 +5,7 @@ import { pendingConfirmations, secretaryDrafts, taskItems, tasks } from "../src/
 import { secretaryAi, SecretaryError, type ProposalOutput, type SecretaryContext, type SecretaryInput } from "../src/integrations/secretary";
 import { createLinkCode, handleUpdate } from "../src/integrations/telegram-bot";
 import { telegramFetch, type TgUpdate } from "../src/integrations/telegram-client";
+import { assemblyFetch, formatTranscript, resumeTranscriptions } from "../src/integrations/transcription";
 import { docxToText } from "../src/lib/docx";
 import { call, db, json, makeUser, type TestUser } from "./helpers";
 
@@ -16,7 +17,7 @@ const realAi = secretaryAi.impl;
 
 beforeEach(() => {
   seen = [];
-  answer = () => ({ summary: "Nada.", projects: [], tasks: [], notes: [] });
+  answer = () => ({ summary: "Nada.", projects: [], tasks: [], notes: [], minutes: "", decisions: [] });
   secretaryAi.impl = async (_env, input, context) => {
     seen.push({ input, context });
     return answer(context);
@@ -124,6 +125,8 @@ describe("secretária", () => {
         task("   "),
       ],
       notes: ["Prazo do piso indefinido."],
+      minutes: "Ata da reforma",
+      decisions: ["Contratar eletricista"],
     });
     const draft = await analyze(u, { text: "Ata: eletricista até dia 10..." });
     expect(draft.status).toBe("ready");
@@ -167,7 +170,7 @@ describe("secretária", () => {
     const u = await makeUser();
     const other = await makeUser();
     const foreign = await json(await call(other, "POST", "/api/projects", { title: "Alheio" }));
-    answer = () => ({ summary: "", projects: [], tasks: [task("Algo")], notes: [] });
+    answer = () => ({ summary: "", projects: [], tasks: [task("Algo")], notes: [], minutes: "", decisions: [] });
     const draft = await analyze(u, { text: "ata" });
     expect((await call(u, "POST", `/api/secretary/drafts/${draft.id}/apply`, { projects: [], tasks: [{ title: "A", projectRef: "p1" }] })).status).toBe(400);
     expect((await call(u, "POST", `/api/secretary/drafts/${draft.id}/apply`, { projects: [], tasks: [{ title: "A", projectId: foreign.id }] })).status).toBe(400);
@@ -189,7 +192,7 @@ describe("secretária", () => {
     };
     const draft = await analyze(u, { text: "ata" });
     expect(draft).toMatchObject({ status: "failed", canRetry: true, error: expect.stringContaining("limite") });
-    answer = () => ({ summary: "ok", projects: [], tasks: [task("Ligar")], notes: [] });
+    answer = () => ({ summary: "ok", projects: [], tasks: [task("Ligar")], notes: [], minutes: "", decisions: [] });
     expect((await call(u, "POST", `/api/secretary/drafts/${draft.id}/retry`, {})).status).toBe(202);
     expect((await waitDraft(u, draft.id)).status).toBe("ready");
   });
@@ -197,7 +200,7 @@ describe("secretária", () => {
   it("liga as tarefas à reunião de origem", async () => {
     const u = await makeUser();
     const ev = await json(await call(u, "POST", "/api/events", { title: "Reunião com arquiteto", startAt: "2026-10-05T14:00", endAt: "2026-10-05T15:00" }));
-    answer = () => ({ summary: "", projects: [], tasks: [task("Enviar planta")], notes: [] });
+    answer = () => ({ summary: "", projects: [], tasks: [task("Enviar planta")], notes: [], minutes: "", decisions: [] });
     const draft = await analyze(u, { text: "ata", eventId: ev.id });
     expect(seen[0].context.meeting).toMatchObject({ title: "Reunião com arquiteto" });
     const out = await json(await call(u, "POST", `/api/secretary/drafts/${draft.id}/apply`, { projects: [], tasks: [{ title: "Enviar planta" }] }));
@@ -266,6 +269,8 @@ describe("secretária pelo Telegram", () => {
       projects: [{ ref: "p1", title: "Obra", description: null, priority: "medium" }],
       tasks: [task("Enviar orçamento", { assigneeName: "Tiago", dueDate: "2026-10-09", projectRef: "p1" })],
       notes: [],
+      minutes: "",
+      decisions: [],
     });
     const doc: TgUpdate = {
       update_id: ++updateId,
@@ -293,7 +298,7 @@ describe("secretária pelo Telegram", () => {
     const from = 77002;
     const { code } = await createLinkCode(db(), u.workspaceId, u.id);
     await handleUpdate(deps, { update_id: ++updateId, message: { message_id: 1, from: { id: from }, chat: { id: from, type: "private" }, text: `/start ${code}` } });
-    answer = () => ({ summary: "", projects: [], tasks: [task("Ligar para o contador")], notes: [] });
+    answer = () => ({ summary: "", projects: [], tasks: [task("Ligar para o contador")], notes: [], minutes: "", decisions: [] });
     await handleUpdate(deps, { update_id: ++updateId, message: { message_id: 2, from: { id: from }, chat: { id: from, type: "private" }, text: "/ata Lucas liga para o contador amanhã" } });
     expect(seen[0].input).toEqual({ kind: "text", text: "Lucas liga para o contador amanhã" });
     const discard = messages().at(-1).reply_markup.inline_keyboard[0][1];
@@ -302,5 +307,177 @@ describe("secretária pelo Telegram", () => {
     expect(drafts[0].status).toBe("discarded");
     expect((await db().select().from(tasks).where(eq(tasks.workspaceId, u.workspaceId))).length).toBe(0);
     expect((await db().select().from(pendingConfirmations).where(eq(pendingConfirmations.workspaceId, u.workspaceId)))[0].status).toBe("cancelled");
+  });
+});
+
+// ---------- Gravações (transcrição) ----------
+
+describe("transcrição de reuniões", () => {
+  type Call = { url: string; method: string; body: unknown; auth: string | null };
+  let calls: Call[] = [];
+  let transcript: Record<string, unknown>;
+  const realAssembly = assemblyFetch.impl;
+  beforeEach(() => {
+    calls = [];
+    transcript = {
+      status: "completed",
+      text: "Bom dia. Tiago envia o orçamento até sexta.",
+      utterances: [
+        { speaker: "A", text: "Bom dia.", start: 1200 },
+        { speaker: "B", text: " Tiago envia o orçamento até sexta. ", start: 65_000 },
+      ],
+    };
+    assemblyFetch.impl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      const body = url.endsWith("/upload") ? new Uint8Array(await new Response(init!.body).arrayBuffer()) : init?.body ? JSON.parse(String(init.body)) : null;
+      calls.push({ url, method, body, auth: new Headers(init?.headers).get("authorization") });
+      if (url.endsWith("/upload")) return Response.json({ upload_url: "https://cdn.assemblyai.test/abc" });
+      if (url.endsWith("/transcript") && method === "POST") return Response.json({ id: "tr_1", status: "queued" });
+      return Response.json(transcript);
+    }) as typeof fetch;
+  });
+  afterEach(() => {
+    assemblyFetch.impl = realAssembly;
+  });
+
+  async function waitStatus(u: TestUser, id: string) {
+    for (let i = 0; i < 100; i++) {
+      const d = await json(await call(u, "GET", `/api/secretary/drafts/${id}`));
+      if (d.status !== "analyzing" && d.status !== "transcribing") return d;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error("não terminou");
+  }
+
+  const upload = (u: TestUser, query: string, data = "áudio falso") =>
+    call(u, "POST", `/api/secretary/recording${query}`, data, { "content-type": "audio/mpeg", "x-central-upload": "1" });
+
+  it("transcreve a gravação, escreve a ata e guarda ata e decisões na reunião ao confirmar", async () => {
+    const u = await makeUser();
+    expect(await json(await call(u, "GET", "/api/secretary"))).toMatchObject({ enabled: true, transcription: true });
+    const ev = await json(await call(u, "POST", "/api/events", { title: "Reunião da obra", startAt: "2026-10-12T10:00", endAt: "2026-10-12T11:00" }));
+    // A reunião já tinha anotações: nada delas se perde.
+    await call(u, "PUT", `/api/events/${ev.id}/notes`, { agenda: "Pauta: orçamento", summary: "Anotação minha.", decisions: [{ text: "Fechar com a construtora" }] });
+    answer = () => ({
+      summary: "Orçamento da obra.",
+      projects: [],
+      tasks: [task("Enviar orçamento", { dueDate: "2026-10-16" })],
+      notes: [],
+      minutes: "ATA DA REUNIÃO\nParticipantes: Pessoa A, Pessoa B.",
+      decisions: ["Fechar com a construtora", "Orçamento vai até sexta"],
+    });
+
+    // Sem o cabeçalho próprio, o envio cru é recusado (proteção CSRF).
+    expect((await call(u, "POST", "/api/secretary/recording?name=x.mp3", "áudio", { "content-type": "audio/mpeg" })).status).toBe(415);
+
+    const res = await upload(u, "?name=reuniao.m4a");
+    expect(res.status).toBe(202);
+    const created = await json(res);
+    expect(created).toMatchObject({ sourceName: "reuniao.m4a", inputKind: "transcript" });
+    const draft = await waitStatus(u, created.id);
+    expect(draft.status).toBe("ready");
+
+    // O áudio foi para a AssemblyAI, em português e separando quem fala.
+    expect(calls[0]).toMatchObject({ method: "POST", auth: "aai-teste" });
+    expect(new TextDecoder().decode(calls[0].body as Uint8Array)).toBe("áudio falso");
+    expect(calls[1].body).toMatchObject({ audio_url: "https://cdn.assemblyai.test/abc", language_code: "pt", speaker_labels: true });
+    expect(calls[2].url).toContain("/transcript/tr_1");
+
+    // A secretária recebeu a transcrição com tempo e locutor.
+    expect(seen[0].input).toEqual({ kind: "transcript", text: "[00:01] Pessoa A: Bom dia.\n[01:05] Pessoa B: Tiago envia o orçamento até sexta." });
+    expect(draft.transcript).toContain("Pessoa B");
+    expect(draft.proposal.minutes).toContain("ATA DA REUNIÃO");
+
+    // A pessoa escolhe a reunião na revisão e ajusta a ata.
+    const out = await json(
+      await call(u, "POST", `/api/secretary/drafts/${draft.id}/apply`, {
+        projects: [],
+        tasks: [{ title: "Enviar orçamento", dueAt: "2026-10-16" }],
+        minutes: "ATA DA REUNIÃO (revisada)",
+        decisions: draft.proposal.decisions,
+        eventId: ev.id,
+      }),
+    );
+    expect(out.draft).toMatchObject({ status: "applied", eventId: ev.id });
+    const row = await db().query.tasks.findFirst({ where: eq(tasks.id, out.taskIds[0]) });
+    expect(row?.sourceEventId).toBe(ev.id);
+    expect(row?.dueAt).not.toBeNull();
+    const notes = await json(await call(u, "GET", `/api/events/${ev.id}/notes`));
+    expect(notes.agenda).toBe("Pauta: orçamento");
+    expect(notes.summary).toContain("Anotação minha.");
+    expect(notes.summary).toContain("ATA DA REUNIÃO (revisada)");
+    // A decisão repetida não é duplicada.
+    expect(notes.decisions.map((d: { text: string }) => d.text)).toEqual(["Fechar com a construtora", "Orçamento vai até sexta"]);
+  });
+
+  it("guarda só a ata quando não há tarefas, e exige reunião para isso", async () => {
+    const u = await makeUser();
+    const ev = await json(await call(u, "POST", "/api/events", { title: "Alinhamento", startAt: "2026-10-12T10:00", endAt: "2026-10-12T11:00" }));
+    answer = () => ({ summary: "", projects: [], tasks: [], notes: [], minutes: "Só conversa.", decisions: [] });
+    const draft = await waitStatus(u, (await json(await upload(u, `?name=a.mp3&eventId=${ev.id}`))).id);
+    expect(draft.eventId).toBe(ev.id);
+    expect((await call(u, "POST", `/api/secretary/drafts/${draft.id}/apply`, { projects: [], tasks: [], minutes: "Só conversa.", eventId: null })).status).toBe(400);
+    expect((await call(u, "POST", `/api/secretary/drafts/${draft.id}/apply`, { projects: [], tasks: [], minutes: "Só conversa." })).status).toBe(201);
+    expect((await json(await call(u, "GET", `/api/events/${ev.id}/notes`))).summary).toBe("Só conversa.");
+  });
+
+  it("falha da transcrição vira mensagem clara", async () => {
+    const u = await makeUser();
+    transcript = { status: "error", text: null, error: "arquivo sem áudio" };
+    const draft = await waitStatus(u, (await json(await upload(u, "?name=video.mp4"))).id);
+    expect(draft).toMatchObject({ status: "failed", canRetry: false, error: expect.stringContaining("arquivo sem áudio") });
+    expect(seen).toHaveLength(0);
+    // Reunião de outro workspace é recusada.
+    const other = await makeUser();
+    const ev = await json(await call(other, "POST", "/api/events", { title: "X", startAt: "2026-10-12T10:00", endAt: "2026-10-12T11:00" }));
+    expect((await upload(u, `?eventId=${ev.id}`)).status).toBe(400);
+  });
+
+  it("retoma pelo cron uma transcrição que ficou sem acompanhamento", async () => {
+    const u = await makeUser();
+    answer = () => ({ summary: "", projects: [], tasks: [task("Ligar")], notes: [], minutes: "Ata", decisions: [] });
+    const id = "rascunho-parado";
+    await db().insert(secretaryDrafts).values({ id, workspaceId: u.workspaceId, userId: u.id, source: "web", sourceName: "g.mp3", inputKind: "transcript", transcriptId: "tr_9", status: "transcribing", updatedAt: Date.now() - 10 * 60_000 });
+    expect(await resumeTranscriptions({ db: db(), env })).toBe(1);
+    const d = await json(await call(u, "GET", `/api/secretary/drafts/${id}`));
+    expect(d.status).toBe("ready");
+    expect(calls.at(-1)!.url).toContain("/transcript/tr_9");
+  });
+
+  it("formata a transcrição sem locutores como texto corrido", () => {
+    expect(formatTranscript({ text: " Olá ", utterances: null })).toBe("Olá");
+    expect(formatTranscript({ text: "", utterances: [{ speaker: "C", text: "Fim", start: 3_725_000 }] })).toBe("[1:02:05] Pessoa C: Fim");
+  });
+
+  it("recebe mensagem de voz pelo Telegram e manda a proposta quando a transcrição termina", async () => {
+    const u = await makeUser();
+    const from = 77003;
+    const sent: { method: string; body: any }[] = [];
+    const realTg = telegramFetch.impl;
+    telegramFetch.impl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/file/bot")) return new Response(new Uint8Array([1, 2, 3]));
+      const method = url.split("/").pop()!;
+      sent.push({ method, body: JSON.parse(String(init?.body ?? "{}")) });
+      const result = method === "getFile" ? { file_path: "voice/file_1.oga" } : method === "sendMessage" ? { message_id: 1 } : true;
+      return new Response(JSON.stringify({ ok: true, result }));
+    }) as typeof fetch;
+    try {
+      const deps = { db: db(), env };
+      const { code } = await createLinkCode(db(), u.workspaceId, u.id);
+      await handleUpdate(deps, { update_id: 99001, message: { message_id: 1, from: { id: from }, chat: { id: from, type: "private" }, text: `/start ${code}` } });
+      answer = () => ({ summary: "Recado.", projects: [], tasks: [task("Pagar boleto", { dueDate: "2026-10-15" })], notes: [], minutes: "Ata curta", decisions: [] });
+      const voice: TgUpdate = { update_id: 99002, message: { message_id: 2, from: { id: from }, chat: { id: from, type: "private" }, voice: { file_id: "V1", file_size: 3 } } };
+      expect(await handleUpdate(deps, voice)).toBe("ok");
+      expect(Array.from(calls[0].body as Uint8Array)).toEqual([1, 2, 3]);
+      const texts = sent.filter((c) => c.method === "sendMessage").map((c) => c.body.text as string);
+      expect(texts.some((t) => t.includes("Vou transcrever"))).toBe(true);
+      expect(texts.at(-1)).toContain("Pagar boleto (até 15/10)");
+      const drafts = await db().select().from(secretaryDrafts).where(eq(secretaryDrafts.workspaceId, u.workspaceId));
+      expect(drafts[0]).toMatchObject({ status: "ready", sourceName: "Áudio do Telegram", inputKind: "transcript" });
+    } finally {
+      telegramFetch.impl = realTg;
+    }
   });
 });
