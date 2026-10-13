@@ -1,3 +1,4 @@
+-- Mantém o número 0007 de propósito: já foi aplicada na Hostinger com este nome (o controle é pelo nome do arquivo).
 CREATE TABLE `secretary_drafts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`workspace_id` text NOT NULL,

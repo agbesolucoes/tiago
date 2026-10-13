@@ -109,3 +109,18 @@ export const ideaStatusLabel: Record<IdeaStatus, string> = {
   converted: "Convertida",
 };
 export const roleLabel: Record<Role, string> = { owner: "Dono", admin: "Administrador", member: "Membro" };
+
+export interface MarketStudy {
+  id: string;
+  address: string;
+  city: string | null;
+  lat: number | null;
+  lon: number | null;
+  verdict: string | null;
+  score: number | null;
+  coverage: number | null;
+  analyzedAt: string;
+  projectId: string | null;
+  hasState: boolean;
+  createdAt: string;
+}

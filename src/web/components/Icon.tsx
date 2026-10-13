@@ -28,6 +28,7 @@ const paths: Record<string, string> = {
   down: "M6 9l6 6 6-6",
   comment: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
   checklist: "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11",
+  map: "M9 3 3 5.5v15.5L9 18.5l6 2.5 6-2.5V3l-6 2.5zM9 3v15.5M15 5.5V21",
   user: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
 };
 
