@@ -27,7 +27,7 @@ export const requireMember = createMiddleware<AppEnv>(async (c, next) => {
     if (origin && origin !== new URL(c.env.APP_URL).origin) throw new HTTPException(403, { message: "origem inválida" });
     const type = c.req.header("content-type") ?? "";
     // Upload envia o arquivo cru; em troca exige um cabeçalho próprio, que outro site não consegue mandar.
-    const upload = c.req.path.endsWith("/attachments/upload") && c.req.header("x-central-upload") === "1";
+    const upload = (c.req.path.endsWith("/attachments/upload") || c.req.path.endsWith("/secretary/recording")) && c.req.header("x-central-upload") === "1";
     if (c.req.method !== "DELETE" && !upload && !type.startsWith("application/json"))
       throw new HTTPException(415, { message: "use application/json" });
   }

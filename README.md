@@ -92,6 +92,19 @@ Cada pessoa liga o próprio Telegram em **Configurações → Telegram**: a Cent
 
 Passo a passo do bot em [docs/configurar-telegram.md](docs/configurar-telegram.md).
 
+## Secretária
+
+A tela **Secretária** (`/secretaria`) recebe a ata de uma reunião (texto colado, PDF, Word `.docx` ou texto, até 10 MB) e pede à API do Claude uma proposta de projetos e tarefas, com responsável, prazo, prioridade, projeto e checklist. Nada é gravado antes da revisão: a pessoa marca o que quer, ajusta e confirma.
+
+- **Ligar:** variável `ANTHROPIC_API_KEY`. `SECRETARY_MODEL` troca o modelo (padrão em `src/integrations/secretary.ts`). Sem a chave, a tela avisa e o bot não aceita arquivos.
+- **Como roda:** `POST /api/secretary/analyze` grava um rascunho (`secretary_drafts`, status `analyzing`) e a análise segue em segundo plano; a tela consulta `GET /api/secretary/drafts/:id` até virar `ready` ou `failed`. A resposta usa saída estruturada e é conferida no servidor: ids de pessoas e projetos que não existem, datas inválidas e prioridades fora da lista são descartados.
+- **Confirmar:** `POST /api/secretary/drafts/:id/apply` cria projetos, tarefas e itens de checklist num lote só. A troca `ready → applied` é atômica, então dois cliques não duplicam. Responsável citado que não é membro vai para a descrição da tarefa.
+- **Reunião:** em Agenda → Registro da reunião, "Analisar com a secretária" leva pauta, resumo e decisões; as tarefas ficam ligadas ao compromisso.
+- **Telegram:** mandar o arquivo da ata para o bot (ou `/ata texto`) gera a mesma análise; o bot responde com a proposta, os botões "Criar tudo" e "Descartar" e um link para revisar na tela.
+- **Gravações:** com `ASSEMBLYAI_API_KEY`, a tela aceita áudio ou vídeo da reunião (até 300 MB) e o bot aceita áudio, mensagem de voz e vídeo (até 20 MB, limite do Telegram). `POST /api/secretary/recording` repassa a gravação em streaming à AssemblyAI (português, com separação de quem fala); o rascunho fica `transcribing` até a transcrição voltar e então segue para a análise como os outros. O cron de 5 minutos retoma transcrições interrompidas por um reinício do servidor.
+- **Ata:** a secretária também escreve a ata (participantes, assuntos, decisões, encaminhamentos) e lista as decisões. Na revisão a ata é editável e pode ser copiada ou baixada; escolhendo a reunião da agenda, a confirmação guarda ata e decisões no Registro da reunião (sem apagar o que já estava lá) e liga as tarefas a ela. Toda tarefa sai com prazo: o da ata ou um sugerido, avisado nos pontos de atenção.
+- **Personalizar:** dono e admins escrevem instruções próprias (estilo, regras da casa) em "Personalizar a secretária"; elas vão junto em cada análise.
+
 ## Monitoramento e backups
 
 - **Logs:** cada requisição gera uma linha JSON com `requestId` (também no cabeçalho `x-request-id`), método, rota, status e duração; `observability` está ligado no `wrangler.jsonc`. Erros 500, falhas do sync, do backup e de envio no Telegram vão também para `app_errors` (30 dias).
@@ -101,6 +114,17 @@ Passo a passo do bot em [docs/configurar-telegram.md](docs/configurar-telegram.m
 - **Restauração:** `scripts/restaurar-backup.mjs` decifra o arquivo e gera o SQL; o teste `test/ops.test.ts` restaura um backup e compara as linhas.
 
 Passo a passo em [docs/backup-e-restauracao.md](docs/backup-e-restauracao.md).
+
+## Alertas (tarefas e agenda)
+
+Em **Configurações → Alertas**, cada pessoa ativa os avisos no próprio aparelho (computador ou celular). Os avisos chegam como notificação do sistema, mesmo com a Central fechada, e também pelo Telegram de quem ligou o bot.
+
+- **Tarefas:** campo **Aviso** (sem aviso, no prazo, 1 hora antes, 1 dia antes). Tarefa nova, inclusive a criada pelo Telegram, avisa no prazo; tarefa só com data avisa às 9h do dia. Vai para o responsável, ou para quem criou se não houver responsável. Tarefa concluída não avisa; mudar o prazo vale um aviso novo.
+- **Agenda:** o lembrete do compromisso (compromisso novo já vem com 30 minutos) vai para todos do workspace que ativaram alertas ou ligaram o Telegram.
+- O cron de 5 minutos envia; `reminder_log` garante um aviso por item, pessoa e canal. Falha no serviço de push tenta de novo no ciclo seguinte (até 1 hora); aparelho que cancelou (404/410) sai da lista.
+- **Web Push sem dependência:** `src/lib/webpush.ts` cifra (RFC 8291, aes128gcm) e assina o VAPID (RFC 8292) só com WebCrypto, igual na Cloudflare e no Node. As chaves VAPID são geradas no primeiro uso e guardadas cifradas em `app_secrets` com `TOKEN_ENCRYPTION_KEY`: não há variável nova. O servidor só envia para serviços de push conhecidos (Google, Mozilla, Apple, Microsoft).
+- `GET /api/notifications`, `POST /api/notifications/devices`, `DELETE /api/notifications/devices/:id`, `POST /api/notifications/test`.
+- **iPhone:** a Apple só entrega alertas para sites adicionados à Tela de Início (Compartilhar → Adicionar à Tela de Início). Para isso a Central tem `manifest.webmanifest`, ícones e o service worker `public/sw.js`.
 
 ## Mercado (analista Omega)
 

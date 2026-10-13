@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { telegramLinks } from "../db/schema";
-import { createLinkCode, telegramEnabled } from "../integrations/telegram-bot";
+import { BOT_COMMANDS, createLinkCode, telegramEnabled } from "../integrations/telegram-bot";
 import { TelegramClient, TelegramError } from "../integrations/telegram-client";
 import { requireRole, type AppEnv } from "./context";
 import { auditInsert, parseBody } from "./helpers";
@@ -68,7 +68,9 @@ export function registerTelegram(api: Hono<AppEnv>) {
     if (!telegramEnabled(c.env)) return c.json({ error: "o bot do Telegram ainda não foi configurado no servidor" }, 409);
     const url = new URL("/integrations/telegram/webhook", c.env.APP_URL).toString();
     try {
-      await new TelegramClient(c.env.TELEGRAM_BOT_TOKEN!).setWebhook(url, c.env.TELEGRAM_WEBHOOK_SECRET!);
+      const tg = new TelegramClient(c.env.TELEGRAM_BOT_TOKEN!);
+      await tg.setWebhook(url, c.env.TELEGRAM_WEBHOOK_SECRET!);
+      await tg.setMyCommands(BOT_COMMANDS);
     } catch (e) {
       const msg = e instanceof TelegramError ? e.description : "falha ao falar com o Telegram";
       return c.json({ error: `O Telegram recusou: ${msg}` }, 502);

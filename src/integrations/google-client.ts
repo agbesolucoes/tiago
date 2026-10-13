@@ -177,7 +177,8 @@ export class DriveClient {
   private async call<T>(method: string, url: string, init: { body?: BodyInit; headers?: Record<string, string> } = {}): Promise<{ data: T; res: Response }> {
     let res: Response;
     try {
-      res = await this.fetcher(url, { method, headers: { authorization: `Bearer ${this.accessToken}`, ...init.headers }, body: init.body });
+      // duplex: o Node exige para enviar um corpo em streaming (o upload de anexos).
+      res = await this.fetcher(url, { method, headers: { authorization: `Bearer ${this.accessToken}`, ...init.headers }, body: init.body, duplex: "half" } as RequestInit);
     } catch (e) {
       throw new GoogleError(0, "network", (e as Error).message);
     }
