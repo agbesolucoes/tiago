@@ -12,6 +12,7 @@ import {
   memberships,
   pendingConfirmations,
   processedUpdates,
+  projects,
   secretaryDrafts,
   syncJobs,
   tasks,
@@ -82,14 +83,42 @@ const HELP = [
   "Comandos da Central:",
   "/hoje: compromissos e tarefas de hoje",
   "/tarefa ligar para o contador amanhã",
+  "/projeto reforma do escritório (sem nome, lista os projetos ativos)",
   "/ideia newsletter mensal para clientes",
   "/evento reunião com fornecedor sexta das 9h às 10h",
   "/concluir contador",
   "/cancelar reunião com fornecedor",
   "/ata cole aqui o texto da ata (ou envie o arquivo em PDF ou Word)",
+  "Gravação de reunião: envie o áudio, a mensagem de voz ou o vídeo aqui e a secretária transcreve e faz a ata.",
   "",
   "Datas aceitas: hoje, amanhã, sexta, 12/10, dia 15; horas como 14h, 14:30 ou 9h às 10h.",
 ].join("\n");
+
+/** O menu "/" do Telegram. Registrado junto com o webhook e uma vez por processo pelo cron. */
+export const BOT_COMMANDS = [
+  { command: "hoje", description: "Compromissos e tarefas de hoje" },
+  { command: "tarefa", description: "Criar tarefa: /tarefa ligar para o contador amanhã" },
+  { command: "projeto", description: "Criar projeto ou ver os projetos ativos" },
+  { command: "ideia", description: "Guardar uma ideia" },
+  { command: "evento", description: "Agendar compromisso: /evento reunião sexta 9h" },
+  { command: "concluir", description: "Concluir uma tarefa" },
+  { command: "cancelar", description: "Cancelar um compromisso" },
+  { command: "ata", description: "Secretária: ata em texto, arquivo ou gravação" },
+  { command: "ajuda", description: "Ver todos os comandos" },
+];
+
+let commandsSynced: Promise<unknown> | null = null;
+/** Atualiza o menu de comandos no Telegram (uma vez por processo; tenta de novo se falhar). */
+export function syncBotCommands(env: Env) {
+  if (!telegramEnabled(env)) return Promise.resolve();
+  commandsSynced ??= client(env)
+    .setMyCommands(BOT_COMMANDS)
+    .catch((e) => {
+      commandsSynced = null;
+      throw e;
+    });
+  return commandsSynced;
+}
 
 // ---------- Entrada ----------
 
@@ -179,6 +208,10 @@ async function onMessage(deps: BotDeps, msg: TgMessage): Promise<Outcome> {
       break;
     case "tarefa":
       await createTask(deps, ctx, link, args, now);
+      break;
+    case "projeto":
+    case "projetos":
+      await createProject(deps, ctx, link, args);
       break;
     case "ideia":
       await createIdea(deps, ctx, link, args);
@@ -275,6 +308,23 @@ async function createTask(deps: BotDeps, ctx: RequestContext, link: Link, args: 
   await ctx.db.batch([ctx.db.insert(tasks).values(row), auditInsert(ctx, "task", row.id, "create", null, { title: row.title, dueAt, via: "telegram" })]);
   const prazo = dueAt ? `, prazo ${w.start ? `${day(dueAt, ctx.timezone)} às ${hour(dueAt, ctx.timezone)}` : day(dueAt, ctx.timezone)}` : "";
   await say(deps, link.chatId, `Tarefa criada: ${row.title}${prazo}.`);
+}
+
+async function createProject(deps: BotDeps, ctx: RequestContext, link: Link, args: string) {
+  if (!args) {
+    const list = await ctx.db
+      .select({ title: projects.title })
+      .from(projects)
+      .where(and(eq(projects.workspaceId, ctx.workspaceId), eq(projects.status, "active")))
+      .orderBy(asc(projects.title))
+      .limit(30);
+    const lines = list.length ? ["Projetos ativos:", ...list.map((p) => `• ${p.title}`)] : ["Nenhum projeto ativo."];
+    await say(deps, link.chatId, [...lines, "", "Para criar um: /projeto reforma do escritório"].join("\n"));
+    return;
+  }
+  const row = { id: newId(), workspaceId: ctx.workspaceId, title: args.slice(0, 200), createdBy: ctx.userId };
+  await ctx.db.batch([ctx.db.insert(projects).values(row), auditInsert(ctx, "project", row.id, "create", null, { title: row.title, via: "telegram" })]);
+  await say(deps, link.chatId, `Projeto criado: ${row.title}.`);
 }
 
 async function createIdea(deps: BotDeps, ctx: RequestContext, link: Link, args: string) {

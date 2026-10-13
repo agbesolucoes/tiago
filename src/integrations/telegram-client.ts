@@ -83,6 +83,11 @@ export class TelegramClient {
     return this.call("setWebhook", { url, secret_token: secret, allowed_updates: ["message", "callback_query"], drop_pending_updates: false });
   }
 
+  /** Menu de comandos que o Telegram mostra ao tocar em "/" ou no botão Menu. */
+  setMyCommands(commands: { command: string; description: string }[]) {
+    return this.call("setMyCommands", { commands });
+  }
+
   getFile(fileId: string) {
     return this.call<{ file_path?: string; file_size?: number }>("getFile", { file_id: fileId });
   }

@@ -1,10 +1,10 @@
 import { env } from "cloudflare:test";
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { events, ideas, integrationAccounts, pendingConfirmations, tasks, telegramLinkCodes } from "../src/db/schema";
+import { events, ideas, integrationAccounts, pendingConfirmations, projects, tasks, telegramLinkCodes } from "../src/db/schema";
 import { refreshCalendarList } from "../src/integrations/calendar-sync";
 import { googleFetch } from "../src/integrations/google-client";
-import { createLinkCode, handleUpdate, sendDailySummaries } from "../src/integrations/telegram-bot";
+import { BOT_COMMANDS, createLinkCode, handleUpdate, sendDailySummaries, syncBotCommands } from "../src/integrations/telegram-bot";
 import { telegramFetch, type TgUpdate } from "../src/integrations/telegram-client";
 import { newId } from "../src/lib/crypto";
 import { parseDateTime } from "../src/lib/time";
@@ -161,6 +161,24 @@ describe("comandos", () => {
     await send(msg(from, "/ideia newsletter mensal"));
     const [i] = await db().select().from(ideas).where(eq(ideas.workspaceId, user.workspaceId));
     expect(i).toMatchObject({ title: "newsletter mensal", origin: "Telegram" });
+  });
+
+  it("cria projeto e lista os ativos", async () => {
+    const { user, from } = await linked();
+    await send(msg(from, "/projeto Reforma do escritório"));
+    expect(tg.last().text).toBe("Projeto criado: Reforma do escritório.");
+    const [p] = await db().select().from(projects).where(eq(projects.workspaceId, user.workspaceId));
+    expect(p).toMatchObject({ title: "Reforma do escritório", status: "active", createdBy: user.id });
+    await send(msg(from, "/projeto"));
+    expect(tg.last().text).toContain("Projetos ativos:\n• Reforma do escritório");
+  });
+
+  it("registra o menu de comandos no Telegram, com /projeto", async () => {
+    await syncBotCommands(env);
+    const menu = tg.calls.find((c) => c.method === "setMyCommands")!;
+    expect(menu.body.commands.map((c: { command: string }) => c.command)).toContain("projeto");
+    expect(menu.body.commands).toEqual(BOT_COMMANDS);
+    for (const c of BOT_COMMANDS) expect(c.description.length).toBeLessThanOrEqual(256);
   });
 
   it("mostra o dia com compromissos, tarefas e atrasadas", async () => {
