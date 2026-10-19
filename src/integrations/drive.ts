@@ -15,7 +15,7 @@ export const driveEnabled = (account: Account) => account.scopes.split(" ").incl
 export class DriveUnavailable extends Error {}
 
 export async function driveFor(deps: SyncDeps, account: Account) {
-  if (account.status !== "active") throw new DriveUnavailable("A conexão com o Google não está ativa.");
+  if (account.status !== "active") throw new DriveUnavailable("A conexão com o Google expirou. Em Configurações, Google, clique em Conectar de novo e tente o envio outra vez.");
   if (!driveEnabled(account)) throw new DriveUnavailable("Conecte o Google de novo e autorize o Drive.");
   return new DriveClient(await accessTokenFor(deps, account), deps.fetcher ?? googleFetch.impl);
 }
