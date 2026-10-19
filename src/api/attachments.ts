@@ -114,8 +114,9 @@ attachmentsApi.post("/upload", async (c) => {
   const { taskHasProject } = await checkParent(ctx, kind.data, parentId);
   const account = await activeAccount(ctx);
   const mimeType = c.req.header("content-type") || "application/octet-stream";
-  // FixedLengthStream mantém o Content-Length sem carregar o arquivo na memória.
-  const { readable, writable } = new FixedLengthStream(size);
+  // Na Cloudflare, FixedLengthStream mantém o Content-Length sem carregar o arquivo na memória.
+  // No Node ele não existe: o fluxo passa direto e o tamanho vai no cabeçalho content-length do envio.
+  const { readable, writable } = typeof FixedLengthStream === "function" ? new FixedLengthStream(size) : new TransformStream<Uint8Array, Uint8Array>();
   const piping = body.pipeTo(writable).catch(() => {});
   let file: DriveFile;
   try {

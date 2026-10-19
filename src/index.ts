@@ -15,7 +15,8 @@ import { auditLog, integrationAccounts, users } from "./db/schema";
 import type { Env } from "./env";
 import { refreshCalendarList, syncAll, syncWorkspace } from "./integrations/calendar-sync";
 import { pruneReminders, sendReminders } from "./integrations/reminders";
-import { handleUpdate, sendDailySummaries, telegramEnabled } from "./integrations/telegram-bot";
+import { handleUpdate, notifyDraft, sendDailySummaries, syncBotCommands, telegramEnabled } from "./integrations/telegram-bot";
+import { resumeTranscriptions } from "./integrations/transcription";
 import type { TgUpdate } from "./integrations/telegram-client";
 import { newId } from "./lib/crypto";
 import { log, recordError } from "./lib/log";
@@ -257,7 +258,7 @@ app.post("/integrations/telegram/webhook", async (c) => {
   if (!(await sameSecret(secret, c.env.TELEGRAM_WEBHOOK_SECRET!))) return c.body(null, 401);
   const update = (await c.req.json().catch(() => null)) as TgUpdate | null;
   if (!update || typeof update.update_id !== "number") return c.json({ ok: true });
-  await handleUpdate({ db: getDb(c.env.DB), env: c.env }, update);
+  await handleUpdate({ db: getDb(c.env.DB), env: c.env, defer: (job) => c.executionCtx.waitUntil(job) }, update);
   return c.json({ ok: true });
 });
 
@@ -292,6 +293,8 @@ export default {
     else {
       ctx.waitUntil(run("sync", () => syncAll({ db, env })));
       ctx.waitUntil(run("lembretes", () => sendReminders({ db, env })));
+      ctx.waitUntil(run("menu telegram", () => syncBotCommands(env)));
+      ctx.waitUntil(run("transcricao", () => resumeTranscriptions({ db, env }, (d) => notifyDraft({ db, env }, d))));
     }
   },
 } satisfies ExportedHandler<Env>;

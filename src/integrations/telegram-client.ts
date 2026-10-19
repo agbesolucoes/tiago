@@ -18,6 +18,19 @@ export interface TgMessage {
   from?: TgUser;
   chat: { id: number; type: "private" | "group" | "supergroup" | "channel" };
   text?: string;
+  caption?: string;
+  document?: TgFile;
+  audio?: TgFile & { title?: string };
+  voice?: TgFile;
+  video?: TgFile;
+  video_note?: TgFile;
+}
+
+export interface TgFile {
+  file_id: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
 }
 
 export interface TgUpdate {
@@ -68,6 +81,22 @@ export class TelegramClient {
 
   setWebhook(url: string, secret: string) {
     return this.call("setWebhook", { url, secret_token: secret, allowed_updates: ["message", "callback_query"], drop_pending_updates: false });
+  }
+
+  /** Menu de comandos que o Telegram mostra ao tocar em "/" ou no botão Menu. */
+  setMyCommands(commands: { command: string; description: string }[]) {
+    return this.call("setMyCommands", { commands });
+  }
+
+  getFile(fileId: string) {
+    return this.call<{ file_path?: string; file_size?: number }>("getFile", { file_id: fileId });
+  }
+
+  /** Baixa um arquivo enviado ao bot (a Bot API entrega até 20 MB). */
+  async download(filePath: string) {
+    const res = await telegramFetch.impl(`https://api.telegram.org/file/bot${this.token}/${filePath}`);
+    if (!res.ok) throw new TelegramError("download", `HTTP ${res.status}`);
+    return new Uint8Array(await res.arrayBuffer());
   }
 
   getMe() {

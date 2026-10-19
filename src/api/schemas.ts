@@ -24,6 +24,8 @@ export const taskCreate = z.strictObject({
   projectId: id.nullable().optional(),
   assigneeId: id.nullable().optional(),
   dueAt: dateTime.nullable().optional(),
+  /** Minutos antes do prazo para avisar; null = sem aviso. Sem o campo, a tarefa avisa no prazo. */
+  reminderMinutes: z.number().int().min(0).max(40_320).nullable().optional(),
   sourceEventId: id.nullable().optional(),
 });
 export const taskUpdate = taskCreate.partial();
