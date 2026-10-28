@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { api } from "../api";
 import { useApp } from "../state";
 import { formatDay, localDate, localTime } from "../time";
@@ -22,6 +22,7 @@ interface Notes {
 
 export function MeetingNotes({ event, onClose }: { event: CalendarEvent; onClose: () => void }) {
   const { toast } = useApp();
+  const navigate = useNavigate();
   const [loaded, setLoaded] = useState(false);
   const [agenda, setAgenda] = useState("");
   const [summary, setSummary] = useState("");
@@ -88,6 +89,19 @@ export function MeetingNotes({ event, onClose }: { event: CalendarEvent; onClose
     }
   }
 
+  /** Leva pauta, resumo e decisões para a secretária, que propõe as tarefas ligadas a esta reunião. */
+  function toSecretary() {
+    const text = [
+      agenda.trim() && `Pauta:\n${agenda.trim()}`,
+      summary.trim() && `Resumo:\n${summary.trim()}`,
+      decisions.some((d) => d.text.trim()) && `Decisões:\n${decisions.filter((d) => d.text.trim()).map((d) => `- ${d.text.trim()}`).join("\n")}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    onClose();
+    navigate(`/secretaria?evento=${event.id}`, { state: { text, meeting: event.title } });
+  }
+
   const change = (i: number, text: string) => {
     setDecisions((list) => list.map((d, j) => (j === i ? { ...d, text } : d)));
     setDirty(true);
@@ -99,6 +113,9 @@ export function MeetingNotes({ event, onClose }: { event: CalendarEvent; onClose
       onClose={onClose}
       footer={
         <>
+          <button type="button" className="btn btn-secondary" onClick={toSecretary} disabled={saving || !loaded}>
+            <Icon name="notes" size={16} /> Analisar com a secretária
+          </button>
           <span className="spacer" />
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>
             Fechar

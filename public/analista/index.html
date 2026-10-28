@@ -260,6 +260,13 @@ function segDist(lat,lon,a,b){ // distância ponto-segmento em metros (projeçã
   return Math.hypot(ax+t*dx, ay+t*dy);
 }
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
+// Lê JSON mesmo com avisos em HTML antes ou lixo depois (o WorldPop passou a responder assim).
+function parseJSONLoose(t){
+  try{ return JSON.parse(t); }catch(e){}
+  const m=t.search(/[{[]\s*["{]/), a=m<0?Infinity:m;
+  if(isFinite(a)) for(let b=Math.max(t.lastIndexOf("}"),t.lastIndexOf("]")); b>a; b=Math.max(t.lastIndexOf("}",b-1),t.lastIndexOf("]",b-1))){ try{ return JSON.parse(t.slice(a,b+1)); }catch(e){} }
+  throw Object.assign(new Error("resposta sem dados legíveis"),{retry:true});
+}
 // Busca JSON com tempo limite e novas tentativas em falhas temporárias (429, 5xx, rede).
 async function fetchJSON(url, opts={}, timeout=45000, retries=2){
   for(let attempt=0;;attempt++){
@@ -267,7 +274,7 @@ async function fetchJSON(url, opts={}, timeout=45000, retries=2){
     try{
       const r=await fetch(url,{...opts,signal:ctl.signal});
       if(!r.ok){ const e=new Error("HTTP "+r.status); e.retry=r.status===429||r.status>=500; throw e; }
-      return await r.json();
+      return parseJSONLoose(await r.text());
     }catch(e){
       const err = e.name==="AbortError" ? Object.assign(new Error("tempo esgotado"),{retry:true}) : e;
       if(err.retry===undefined) err.retry=true; // erro de rede
@@ -320,24 +327,82 @@ async function geocode(q){
     try{ const r=await fetchJSON(`${NOM}/reverse?format=jsonv2&addressdetails=1&accept-language=pt-BR&lat=${lat}&lon=${lon}`); const n=fromNominatim(r,"Coordenadas informadas"); g={...n,lat,lon,house:n.house||"(coordenada)"}; }catch(e){}
     return {best:g, cands:[]};
   }
-  try{
-    const res=await fetchJSON(`${NOM}/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=br&accept-language=pt-BR&q=${encodeURIComponent(q)}`);
-    if(res.length) { const list=res.map(r=>fromNominatim(r,"Nominatim/OpenStreetMap")); return {best:list[0], cands:list.slice(1)}; }
-  }catch(e){ console.warn("Nominatim falhou",e); }
+  // O endereço digitado nem sempre bate com o mapa (bairro colado na cidade, "Estrada Crispim" em vez de
+  // "Estrada do Crispim", estado repetido). Tenta o texto inteiro e depois versões mais simples, montadas com a
+  // cidade reconhecida na lista de municípios do IBGE.
+  // As variantes só são montadas se o texto inteiro não for achado, para não atrasar a busca comum.
+  const tries=[{params:"q="+encodeURIComponent(q),text:q,method:"Nominatim/OpenStreetMap",label:"texto inteiro"}]; let more=false;
+  const extend=async()=>{ if(more) return; more=true; try{ tries.push(...(await geocodeVariants(q)).slice(1)); }catch(e){} };
+  for(let i=0;i<tries.length;i++){ const t=tries[i];
+    if(i) await sleep(1000); // limite de uso do Nominatim: uma consulta por segundo
+    try{
+      const res=await fetchJSON(`${NOM}/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=br&accept-language=pt-BR&${t.params}`);
+      const list=res.map(r=>fromNominatim(r,t.method)).filter(x=>!t.city||norm(x.city)===norm(t.city));
+      if(list.length){ if(t.number&&!list[0].house) list.forEach(x=>x.numberAsked=t.number); return {best:list[0], cands:list.slice(1)}; }
+    }catch(e){ console.warn("Nominatim falhou",t.label,e.message); if(!/HTTP 4/.test(e.message)) break; }
+    if(i===tries.length-1) await extend();
+  }
+  await extend();
   // fallback Photon (Komoot), também baseado em OSM
-  const ph=await fetchJSON(`https://photon.komoot.io/api/?limit=5&q=${encodeURIComponent(q+", Brasil")}`);
-  const list=(ph.features||[]).filter(f=>(f.properties.countrycode||"").toUpperCase()==="BR").map(f=>{const p=f.properties;return{
+  let list=[];
+  for(const t of tries){ const ph=await fetchJSON(`https://photon.komoot.io/api/?limit=5&q=${encodeURIComponent(t.text+", Brasil")}`).catch(()=>({}));
+  list=(ph.features||[]).filter(f=>(f.properties.countrycode||"").toUpperCase()==="BR").map(f=>{const p=f.properties;return{
     lat:f.geometry.coordinates[1], lon:f.geometry.coordinates[0], method:"Photon/OpenStreetMap",
     display:[p.name,p.street,p.housenumber,p.district||p.locality,p.city,p.state].filter(Boolean).join(", "),
-    house:p.housenumber||"", road:p.street||p.name||"", suburb:p.district||p.locality||"", city:p.city||p.county||"", uf:UF_BY_NAME[norm(p.state)]||"", state:p.state||"", postcode:p.postcode||""};});
+    house:p.housenumber||"", road:p.street||p.name||"", suburb:p.district||p.locality||"", city:p.city||p.county||"", uf:UF_BY_NAME[norm(p.state)]||"", state:p.state||"", postcode:p.postcode||""};}).filter(x=>!t.city||norm(x.city)===norm(t.city));
+    if(list.length){ if(t.number&&!list[0].house) list.forEach(x=>x.numberAsked=t.number); break; } }
   if(!list.length) throw new Error("Endereço não encontrado. Confira a grafia, inclua a cidade e a UF, ou informe as coordenadas.");
   return {best:list[0], cands:list.slice(1)};
 }
 
+// Variantes da busca, da mais completa para a mais simples.
+async function geocodeVariants(q){
+  const T=[{params:"q="+encodeURIComponent(q),text:q,method:"Nominatim/OpenStreetMap",label:"texto inteiro"}];
+  const parts=q.split(/[,;\n]+/).map(x=>x.trim()).filter(Boolean);
+  const nq=norm(q);
+  let uf=(parts.map(x=>x.toUpperCase()).find(x=>UF_CODE[x]))||Object.entries(UF_BY_NAME).find(([k])=>parts.some(x=>norm(x)===k))?.[1]||"";
+  if(!uf){ const m=q.match(/[\s\-\/]([A-Za-z]{2})\s*$/); if(m&&UF_CODE[m[1].toUpperCase()]) uf=m[1].toUpperCase(); }
+  const number=(parts.find(x=>/^(n[ºo°.]?\s*)?\d{1,6}[a-z]?$/i.test(x))||"").replace(/\D+$/,"").replace(/^\D+/,"");
+  const street=parts[0]&&!/^\d/.test(parts[0])?parts[0]:"";
+  let city="";
+  const tail=" "+norm(parts.slice(1).join(" "))+" ";
+  const best=list=>list.filter(x=>tail.includes(" "+norm(x.nome)+" ")).sort((a,b)=>b.nome.length-a.nome.length)[0];
+  if(uf){ try{ const m=best(await ibgeMunicipios(uf)); if(m) city=m.nome; }catch(e){} }
+  else { try{ const m=best(await ibgeMunicipiosBR()); if(m){ city=m.nome; uf=m.uf; } }catch(e){} } // sem estado no texto: procura a cidade no Brasil inteiro
+  if(!city||!street) return T;
+  const st=uf?`&state=${uf}`:"";
+  const add=(label,params,method,text)=>T.push({label,params,method,city,number,text:text||decodeURIComponent(params.replace(/^q=/,""))});
+  add("rua, número e cidade",`street=${encodeURIComponent((number?number+" ":"")+street)}&city=${encodeURIComponent(city)}${st}`,"Nominatim/OpenStreetMap",`${street}, ${number}, ${city}, ${uf}`);
+  add("rua e cidade",`q=${encodeURIComponent(`${street}, ${city}, ${uf}`)}`,"Nominatim/OpenStreetMap (rua; número não encontrado no mapa)");
+  const shortStreet=street.replace(/^(rua|r\.|avenida|av\.?|estrada|estr\.?|rodovia|travessa|alameda|al\.)\s+/i,"");
+  if(shortStreet!==street) add("nome da rua e cidade",`q=${encodeURIComponent(`${shortStreet}, ${city}, ${uf}`)}`,"Nominatim/OpenStreetMap (rua; número não encontrado no mapa)");
+  const bairro=parts.slice(1).map(x=>norm(x).replace(norm(city),"").trim()).find(x=>x&&!/^\d/.test(x)&&!UF_CODE[x.toUpperCase()]&&!UF_BY_NAME[x]);
+  if(bairro) add("bairro e cidade",`q=${encodeURIComponent(`${bairro}, ${city}, ${uf}`)}`,"Nominatim/OpenStreetMap (bairro; rua não encontrada no mapa)");
+  return T;
+}
+
 /* ===================== IBGE ===================== */
+const UF_CODE={RO:11,AC:12,AM:13,RR:14,PA:15,AP:16,TO:17,MA:21,PI:22,CE:23,RN:24,PB:25,PE:26,AL:27,SE:28,BA:29,MG:31,ES:32,RJ:33,SP:35,PR:41,SC:42,RS:43,MS:50,MT:51,GO:52,DF:53};
+// Todos os municípios do Brasil (nome e UF), para achar a cidade quando o endereço vem sem o estado.
+const ibgeMunicipiosBR=()=>cached("ibge|municipios-br","IBGE",async()=>{
+  try{ const r=await fetchJSON("https://servicodados.ibge.gov.br/api/v1/localidades/municipios?view=nivelado",{},15000,1); return r.map(x=>({id:+x["municipio-id"],nome:x["municipio-nome"],uf:x["UF-sigla"]})); }
+  catch(e){ const r=await fetchJSON("https://apisidra.ibge.gov.br/values/t/4714/n6/all/v/93/p/2022"); return r.slice(1).map(x=>{const m=String(x.D1N).match(/^(.*?)\s*-\s*([A-Z]{2})$/); return m?{id:+x.D1C,nome:m[1],uf:m[2]}:null;}).filter(Boolean); }
+});
+const MUN_LIST={};
+const ibgeMunicipios=uf=>MUN_LIST[uf]||(MUN_LIST[uf]=ibgeMunicipiosRaw(uf).catch(e=>{delete MUN_LIST[uf]; throw e;}));
 async function ibgeMunicipio(uf, city){
-  const list=await fetchJSON(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`);
+  const list=await ibgeMunicipios(uf);
   const n=norm(city); return list.find(m=>norm(m.nome)===n) || list.find(m=>norm(m.nome).startsWith(n)||n.startsWith(norm(m.nome)));
+}
+async function ibgeMunicipiosRaw(uf){
+  let list;
+  try{ list=await fetchJSON(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`,{},15000,1); }
+  catch(e){ // reserva: a mesma lista pelo SIDRA, que responde quando a API de localidades cai
+    if(!UF_CODE[uf]) throw e;
+    const r=await fetchJSON(`https://apisidra.ibge.gov.br/values/t/4714/n6/in%20n3%20${UF_CODE[uf]}/v/93/p/2022`);
+    list=r.slice(1).map(x=>({id:+x.D1C,nome:String(x.D1N).replace(/\s*[-(]\s*[A-Z]{2}\)?$/,"")}));
+  }
+  return list;
 }
 // Retorna [{v, year, value, unit, name}] tentando a API SIDRA e, se falhar, a API de agregados v3.
 const ibgeVars=(t,v,p,id)=>cached(`ibge|${t}|${v}|${p}|${id}`,"IBGE",()=>ibgeVarsRaw(t,v,p,id));
@@ -381,17 +446,22 @@ async function ibgeIdadeRaw(munId){
 function circleRing(lat,lon,r,n=48){const pts=[];for(let i=0;i<=n;i++){const t=2*Math.PI*i/n;const dy=r*Math.cos(t)/110540, dx=r*Math.sin(t)/(111320*Math.cos(lat*Math.PI/180));pts.push([+(lon+dx).toFixed(6),+(lat+dy).toFixed(6)]);}return pts;}
 const worldpop=(lat,lon,r)=>cached(`wp|${lat.toFixed(4)}|${lon.toFixed(4)}|${r}`,"WorldPop",()=>worldpopRaw(lat,lon,r));
 async function worldpopRaw(lat,lon,r){
+  // Dentro da Central, o servidor dela consulta o WorldPop (o navegador não consegue ler a resposta atual).
+  if(HOST||/^\/analista\//.test(location.pathname)){ try{ const j=await fetchJSON(`/api/market-studies/population?lat=${lat.toFixed(6)}&lon=${lon.toFixed(6)}&r=${r}`,{credentials:"same-origin"},150000,1); if(isFinite(j.total)) return j.total; }catch(e){ console.warn("WorldPop pela Central falhou",e.message); } }
   const gj={type:"FeatureCollection",features:[{type:"Feature",properties:{},geometry:{type:"Polygon",coordinates:[circleRing(lat,lon,r)]}}]};
-  let j=await fetchJSON(`https://api.worldpop.org/v1/services/stats?dataset=wpgppop&year=2020&geojson=${encodeURIComponent(JSON.stringify(gj))}&runasync=false`,{},90000);
-  for(let i=0;i<30 && j && j.status!=="finished" && j.taskid;i++){ await sleep(3000); j=await fetchJSON(`https://api.worldpop.org/v1/tasks/${j.taskid}`); if(j.error) throw new Error(j.error_message||"erro WorldPop"); }
+  let j=await fetchJSON(`https://api.worldpop.org/v1/services/stats?dataset=wpgppop&year=2020&geojson=${encodeURIComponent(JSON.stringify(gj))}&runasync=false`,{},90000,1);
+  for(let i=0;i<30 && j && !isFinite(j.data?.total_population) && j.status!=="finished" && j.taskid;i++){ await sleep(3000); j=await fetchJSON(`https://api.worldpop.org/v1/tasks/${j.taskid}`); if(j.error) throw new Error(j.error_message||"erro WorldPop"); }
   const v=j?.data?.total_population; if(!isFinite(v)) throw new Error("resposta sem população"); return v;
 }
 
 /* ===================== OpenStreetMap / Overpass ===================== */
 const OVERPASS=["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter","https://overpass.private.coffee/api/interpreter","https://maps.mail.ru/osm/tools/overpass/api/interpreter"];
-const overpass=q=>cached("ovp|"+q,"OpenStreetMap",()=>overpassRaw(q));
-async function overpassRaw(q){
-  const errs=[]; for(const u of OVERPASS){ try{ const j=await fetchJSON(u,{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}},120000,1);
+const overpass=(q,start=0)=>cached("ovp|"+q,"OpenStreetMap",()=>overpassRaw(q,start));
+// Cada consulta começa num servidor diferente e passa ao próximo assim que um recusa (lotado, 429, 5xx),
+// com prazo total de 2 minutos, para a análise não ficar presa quando o Overpass está sobrecarregado.
+async function overpassRaw(q,start=0){
+  const errs=[], end=Date.now()+120000, order=OVERPASS.map((_,i)=>OVERPASS[(i+start)%OVERPASS.length]);
+  for(let round=0;round<2;round++) for(const u of order){ const left=end-Date.now(); if(left<5000) break; try{ const j=await fetchJSON(u,{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}},Math.min(90000,left),0);
       if(j.remark&&/runtime error|timed out|out of memory/i.test(j.remark)) throw new Error("Overpass: "+j.remark.slice(0,80)); return j; }catch(e){ errs.push(new URL(u).host+": "+e.message); } }
   throw new Error(errs.join(" | "));
 }
@@ -399,6 +469,11 @@ const FIT_SPORT="fitness|crossfit|pilates|yoga|martial_arts|boxing|muay_thai|kic
 // Consultas enxutas: filtros por chave/valor exatos primeiro (rápidos no Overpass); refinamento por esporte e nome no navegador.
 function qFitness(lat,lon){const A=`(around:3000,${lat},${lon})`;return `[out:json][timeout:60];
 (nwr${A}["leisure"="fitness_centre"];nwr${A}["amenity"="gym"];nwr${A}["leisure"="sports_centre"];nwr${A}["sport"~"^(fitness|crossfit|pilates|yoga)$"];);
+out center tags;`;}
+// Busca complementar pelo nome em 2 km: pega academias e estúdios mapeados sem a etiqueta de academia.
+const GYM_NAME="academia|fitness|crossfit|cross fit|pilates|muscula|smart ?fit|bluefit|selfit|bodytech|just ?fit|panobianco|bio ritmo|skyfit|gym";
+function qFitnessName(lat,lon){const A=`(around:2000,${lat},${lon})`;return `[out:json][timeout:25];
+(node${A}["name"~"${GYM_NAME}",i][!"highway"][!"shop"];way${A}["name"~"${GYM_NAME}",i][!"highway"][!"shop"];);
 out center tags;`;}
 // Rede Omega em ~12 km: filtro por caixa (bbox), muito mais barato que "around" com raio grande; distância filtrada no navegador.
 function qOmega(lat,lon){const dl=0.11, dn=0.11/Math.cos(lat*Math.PI/180); const bb=`${(lat-dl).toFixed(4)},${(lon-dn).toFixed(4)},${(lat+dl).toFixed(4)},${(lon+dn).toFixed(4)}`;
@@ -486,7 +561,15 @@ async function analyse(S){
           if(!popY && S.mun.pop){ popY=S.mun.pop; popNote="Censo 2022 (ano diferente do PIB)"; }
           if(popY) S.mun.pibpc={value:pib.value*1000/popY, year:pib.year, popNote}; }
       }catch(e){ S.errs.pib=e.message; }
-      src("ibge","ok","IBGE · município e Censo 2022",`${mun.nome} (${mun.id})${S.errs.idade?" · idade indisponível":""}${S.errs.pib?" · PIB indisponível":""}`);
+      // Poder de compra: renda domiciliar per capita (Censo 2022, tabela 10295) e salário médio formal (CEMPRE, tabela 1685).
+      try{ const r=await ibgeVars(10295,[13431,13534],"2022",mun.id); const g2=v=>r.find(x=>x.v===String(v))?.value;
+        if(g2(13431)) S.mun.renda={media:g2(13431), mediana:g2(13534)??null, year:2022}; else throw new Error("tabela sem rendimento"); }
+      catch(e){ S.errs.renda=e.message; }
+      try{ const r=await ibgeVars(1685,[1606,10143,707],"last",mun.id); const g2=v=>r.find(x=>x.v===String(v));
+        if(g2(1606)||g2(10143)) S.mun.sal={sm:g2(1606)?.value??null, reais:g2(10143)?.value??null, ocupados:g2(707)?.value??null, year:(g2(1606)||g2(10143)).year}; }
+      catch(e){ S.errs.sal=e.message; }
+      const miss=[S.errs.idade&&"idade",S.errs.pib&&"PIB",S.errs.renda&&"renda"].filter(Boolean);
+      src("ibge","ok","IBGE · município e Censo 2022",`${mun.nome} (${mun.id})${miss.length?" · sem "+miss.join(", "):""}`);
     }catch(e){ S.errs.ibge=e.message; src("ibge","err","IBGE",e.message); }
   })());
   // WorldPop
@@ -498,12 +581,10 @@ async function analyse(S){
   // OSM (sequencial para respeitar limites do Overpass)
   tasks.push((async()=>{
     src("osm","run","OpenStreetMap · concorrência e entorno","Overpass API");
-    try{ S.fit=(await overpass(qFitness(lat,lon))).elements; }catch(e){ S.errs.fit=e.message; }
-    try{ S.omg=(await overpass(qOmega(lat,lon))).elements; }catch(e){ S.errs.omega=e.message; }
-    try{ S.ctx=(await overpass(qContext(lat,lon))).elements; }catch(e){ S.errs.ctx=e.message; }
-    try{ S.bar=(await overpass(qBarriers(lat,lon))).elements; }catch(e){ S.errs.bar=e.message; }
-    try{ S.cnt=(await overpass(qCounts(lat,lon))).elements; }catch(e){ S.errs.cnt=e.message; }
-    const names={fit:"concorrência",omega:"rede Omega",ctx:"entorno",bar:"barreiras",cnt:"contagens"};
+    // Duas consultas por vez, cada uma começando num servidor diferente, para respeitar os limites do Overpass.
+    const Q=[["fit",qFitness,"fit"],["ctx",qContext,"ctx"],["omg",qOmega,"omega"],["cnt",qCounts,"cnt"],["bar",qBarriers,"bar"],["fitN",qFitnessName,"fitName"]];
+    for(let i=0;i<Q.length;i+=2) await Promise.all(Q.slice(i,i+2).map(([k,fq,ek],j)=>overpass(fq(lat,lon),i+j).then(r=>{S[k]=r.elements;},e=>{S.errs[ek]=e.message;})));
+    const names={fit:"concorrência",omega:"rede Omega",ctx:"entorno",bar:"barreiras",cnt:"contagens"}; // a busca por nome é complementar e não entra aqui
     const fails=Object.keys(names).filter(k=>S.errs[k]);
     src("osm",fails.length===5?"err":"ok","OpenStreetMap · concorrência e entorno",fails.length?`falharam: ${fails.map(k=>names[k]).join(", ")} (${S.errs[fails[0]]}). Tente de novo em alguns minutos.`:"5 consultas concluídas");
   })());
@@ -519,7 +600,8 @@ function build(S){
   const {lat,lon}=S.geo; const R={};
   // concorrência
   const seen=new Set(); R.comp=[]; R.omega=[];
-  [...(S.fit||[]),...(S.omg||[])].forEach(e=>{const c=center(e); if(!c) return; const t=e.tags||{}; const id=e.type+"/"+e.id; if(seen.has(id)) return; seen.add(id);
+ const byName=(S.fitN||[]).filter(e=>{const t=e.tags||{}; return new RegExp(GYM_NAME,"i").test(t.name||"") && !t.shop && !t.highway && !t.office && !(t.amenity&&t.amenity!=="gym") && !/^(school|college|university)$/.test(t.amenity||"") && t.leisure!=="fitness_station" && !/loja|store|suplement|nutri|roupa|moda|food|lanch|ar livre|letras|pol[ií]cia|militar|idiomas|ingl[eê]s|m[uú]sica|beleza|cabel|unha|barb|est[eé]tica|odonto/i.test(t.name||"");});
+  [...(S.fit||[]),...byName,...(S.omg||[])].forEach(e=>{const c=center(e); if(!c) return; const t=e.tags||{}; const id=e.type+"/"+e.id; if(seen.has(id)) return; seen.add(id);
     if(t.leisure==="sports_centre" && !isOmega(t) && !new RegExp(FIT_SPORT,"i").test(t.sport||"") && !/academia|fitness|gym|studio|est[uú]dio|crossfit|pilates|muscula/i.test(t.name||"")) return;
     const d=hav(lat,lon,c.lat,c.lon); const row={id,name:t.name||"(sem nome no mapa)",lat:c.lat,lon:c.lon,d,seg:segment(t),
       addr:[t["addr:street"],t["addr:housenumber"]].filter(Boolean).join(", ")||"não verificado", hours:t.opening_hours||"não verificado",
@@ -547,10 +629,19 @@ function build(S){
     if(/^(motorway|trunk|primary|secondary)$/.test(t.highway) && dm<=250){ if(!R.arterial||dm<R.arterial.d) R.arterial={name:t.name||t.ref||"via sem nome",d:dm,type:t.highway}; }
     if(kind && dm<=2000){ const key=kind+"|"+(t.name||t.ref||""); const ex=R.barriers.find(b=>b.key===key); if(!ex) R.barriers.push({key,kind,name:t.name||t.ref||"sem nome",d:dm}); else ex.d=Math.min(ex.d,dm); }});
   R.barriers.sort((a,b)=>a.d-b.d);
-  // populações em anéis (sem sobreposição)
-  if(S.pop){ const p=S.pop; R.rings=[{lbl:"0–500 m",v:p.r500,area:Math.PI*0.25},{lbl:"500 m–1 km",v:Math.max(0,p.r1000-p.r500),area:Math.PI*(1-0.25)},{lbl:"1–2 km",v:Math.max(0,p.r2000-p.r1000),area:Math.PI*(4-1)}];
+  // populações em anéis (sem sobreposição). Sem o WorldPop, estimativa pela densidade do município (Censo 2022).
+  let pp=null;
+  if(S.pop){ pp=S.pop; R.popSrc={key:"wp",short:"WorldPop 2020",long:"modelo WorldPop de grade de 100 m (2020)"}; }
+  else if(S.mun?.dens){ const d=S.mun.dens; pp={r500:d*Math.PI*0.25,r1000:d*Math.PI,r2000:d*Math.PI*4}; R.popSrc={key:"dens",short:"densidade média do município",long:`densidade média de ${S.mun.nome} no Censo 2022 (${nf(d,1)} hab/km²) aplicada à área de cada raio`,fallback:true}; }
+  if(pp){ const p=pp; R.rings=[{lbl:"0–500 m",v:p.r500,area:Math.PI*0.25},{lbl:"500 m–1 km",v:Math.max(0,p.r1000-p.r500),area:Math.PI*(1-0.25)},{lbl:"1–2 km",v:Math.max(0,p.r2000-p.r1000),area:Math.PI*(4-1)}];
     R.dens2k=p.r2000/(Math.PI*4); }
-  R.pop2k = S.pop?.r2000 ?? null;
+  R.pop2k = pp?.r2000 ?? null;
+  // poder de compra: renda e salário do município (IBGE) mais sinais do entorno (OpenStreetMap)
+  const mu=S.mun||{}; R.power={renda:mu.renda||null, sal:mu.sal||null, pibpc:mu.pibpc||null};
+  if(mu.renda&&R.pop2k) R.power.massa=mu.renda.media*R.pop2k;
+  if(mu.renda&&S.inputs.ticket) R.power.ticketShare=S.inputs.ticket/(mu.renda.mediana||mu.renda.media);
+  if(R.cnt&&R.pop2k) R.power.shopsPer1k=R.cnt.shop.r2000/(R.pop2k/1000);
+  if(R.cnt?.building?.r1000) R.power.apt=R.cnt.apartments.r1000/R.cnt.building.r1000;
   R.residentsPerGym = (R.pop2k && !S.errs.fit) ? R.pop2k/Math.max(1,R.compR.r2000) : null;
   // financeiro
   R.fin=finance(S,R);
@@ -589,18 +680,21 @@ function finance(S,R){
   return F;
 }
 
-/* Matriz de julgamento (não é probabilidade). Pesos do escopo: demanda 25, concorrência 20, acesso 15, imóvel 15, economia 20, expansão 5. */
+/* Matriz de julgamento (não é probabilidade). Pesos: demanda 20, concorrência 20, poder de compra 15, acesso 10, imóvel 15, economia 15, expansão 5. */
 const CRIT = {
-  dem:{w:25,n:"Demanda",rule:"Moradores estimados em 2 km: <20 mil = 1; 20–40 mil = 2; 40–70 mil = 3; 70–120 mil = 4; >120 mil = 5."},
+  dem:{w:20,n:"Demanda",rule:"Moradores estimados em 2 km: <20 mil = 1; 20–40 mil = 2; 40–70 mil = 3; 70–120 mil = 4; >120 mil = 5."},
   con:{w:20,n:"Concorrência / posicionamento",rule:"Moradores por academia/estúdio mapeado em 2 km: <3 mil = 1; 3–6 mil = 2; 6–10 mil = 3; 10–15 mil = 4; >15 mil = 5. Nota limitada a 4 porque o mapeamento pode estar incompleto."},
-  ace:{w:15,n:"Acesso / visibilidade",rule:"Pontos de ônibus em 500 m: 0 = 1; 1–3 = 2; 4–8 = 3; 9+ = 4. +1 se houver estação a até 1 km ou via arterial a até 100 m. Máximo 5. Visibilidade da fachada exige visita."},
+  pod:{w:15,n:"Poder de compra",rule:"Renda domiciliar per capita média do município (Censo 2022): <R$ 1.000 = 1; R$ 1.000–1.500 = 2; R$ 1.500–2.200 = 3; >R$ 2.200 = 4. Sem a renda do Censo, usa o salário médio formal (CEMPRE): <2 SM = 1; 2–2,5 = 2; 2,5–3 = 3; >3 = 4. Nota limitada a 4 porque a renda é do município inteiro, não do entorno."},
+  ace:{w:10,n:"Acesso / visibilidade",rule:"Pontos de ônibus em 500 m: 0 = 1; 1–3 = 2; 4–8 = 3; 9+ = 4. +1 se houver estação a até 1 km ou via arterial a até 100 m. Máximo 5. Visibilidade da fachada exige visita."},
   imo:{w:15,n:"Imóvel / capacidade",rule:"Área útil ÷ área mínima do formato: <0,8 = 1 (impedimento potencial); 0,8–1 = 2; 1–1,2 = 3; >1,2 = 4. Sem visita técnica a nota máxima é 4."},
-  eco:{w:20,n:"Economia",rule:"Alunos do ponto de equilíbrio ÷ alunos do cenário base: >1 = 1; 0,85–1 = 2; 0,7–0,85 = 3; 0,5–0,7 = 4; ≤0,5 = 5. Depende das hipóteses de penetração."},
+  eco:{w:15,n:"Economia",rule:"Alunos do ponto de equilíbrio ÷ alunos do cenário base: >1 = 1; 0,85–1 = 2; 0,7–0,85 = 3; 0,5–0,7 = 4; ≤0,5 = 5. Depende das hipóteses de penetração."},
   exp:{w:5,n:"Expansão / canibalização",rule:"Unidade Omega mais próxima mapeada: <1 km = 1; 1–2 km = 2; 2–3 km = 3; nenhuma em 3 km = 4 (mapeamento pode estar incompleto)."}
 };
 function score(S,R){
   const s={};
-  if(R.pop2k){const p=R.pop2k; s.dem={v:p<20000?1:p<40000?2:p<70000?3:p<120000?4:5, why:`≈ ${nf(roundSig(p))} moradores estimados em 2 km (WorldPop 2020).`};}
+  if(R.pop2k){const p=R.pop2k; s.dem={v:p<20000?1:p<40000?2:p<70000?3:p<120000?4:5, why:`≈ ${nf(roundSig(p))} moradores estimados em 2 km (${R.popSrc.short}).`};}
+  const pw=R.power; if(pw?.renda){const x=pw.renda.media; s.pod={v:x<1000?1:x<1500?2:x<2200?3:4, why:`Renda domiciliar per capita média de ${brl(x)} em ${S.mun.nome} (Censo 2022)${pw.renda.mediana?`; mediana ${brl(pw.renda.mediana)}`:""}.`};}
+  else if(pw?.sal?.sm){const x=pw.sal.sm; s.pod={v:x<2?1:x<2.5?2:x<3?3:4, why:`Salário médio formal de ${nf(x,1)} salários mínimos em ${S.mun.nome} (CEMPRE ${pw.sal.year}).`};}
   if(R.residentsPerGym!=null){const x=R.residentsPerGym; s.con={v:x<3000?1:x<6000?2:x<10000?3:4, why:`${R.compR.r2000} academias/estúdios mapeados em 2 km ≈ ${nf(roundSig(x))} moradores por estabelecimento.`};}
   if(!S.errs.ctx){const bus=R.poiCat["Pontos de ônibus"]?.r500||0; let v=bus===0?1:bus<=3?2:bus<=8?3:4; const st=R.poiCat["Estações (trem/metrô)"]?.near; const extra=(st&&st.d<=1000)||(R.arterial&&R.arterial.d<=100);
     if(extra) v=Math.min(5,v+1); s.ace={v, why:`${bus} pontos de ônibus em 500 m${st&&st.d<=1000?`; estação a ${nf(st.d)} m`:""}${R.arterial&&R.arterial.d<=100?`; via arterial (${R.arterial.name}) a ${nf(R.arterial.d)} m`:""}.`};}
@@ -669,7 +763,7 @@ function market(S,R){
 function swot(S,R){
   const it=R.score.items, I=S.inputs, F=R.fin, sw={S:[],W:[],O:[],T:[]};
   const st=R.poiCat["Estações (trem/metrô)"]?.near;
-  if(it.dem && it.dem.v>=4) sw.S.push(`Base residencial ampla: ≈ ${nf(roundSig(R.pop2k))} moradores em 2 km (estimativa WorldPop).`);
+  if(it.dem && it.dem.v>=4) sw.S.push(`Base residencial ampla: ≈ ${nf(roundSig(R.pop2k))} moradores em 2 km (${R.popSrc.short}).`);
   if(st && st.d<=1000) sw.S.push(`Estação ${st.name||"de trem/metrô"} a ${nf(st.d)} m.`);
   if(R.arterial && R.arterial.d<=100) sw.S.push(`Próximo a via arterial (${R.arterial.name}, ${nf(R.arterial.d)} m): potencial de visibilidade a confirmar em visita.`);
   if(I.area && I.areaMin && I.area>=I.areaMin) sw.S.push(`Área informada (${nf(I.area)} m²) atende à área mínima do formato (${nf(I.areaMin)} m²).`);
@@ -759,10 +853,14 @@ function buildDoc(S,R){
     idade:`IBGE, Censo Demográfico 2022, tabela 9514 (referência 2022; consulta em ${dt})`,
     pib:`IBGE, PIB dos Municípios, tabela 5938 (referência ${m.pibpc?.year||"—"}; consulta em ${dt})`,
     wp:`WorldPop, Global High Resolution Population, grade de 100 m (referência 2020; consulta em ${dt})`,
+    dens:`Estimativa pela densidade média do município, IBGE Censo 2022, tabela 4714 (consulta em ${dt})`,
+    renda:`IBGE, Censo Demográfico 2022, tabela 10295, rendimento domiciliar per capita (referência 2022; consulta em ${dt})`,
+    sal:`IBGE, Cadastro Central de Empresas, tabela 1685 (referência ${m.sal?.year||"—"}; consulta em ${dt})`,
     osm:`© colaboradores do OpenStreetMap, via Overpass API (consulta em ${dtl})`,
     user:`Informado pelo usuário em ${dt}`, hyp:"Hipótese de cenário editável no painel de entrada",
     geo:`${g.method} (consulta em ${dt})`
   };
+  const PK=R.popSrc?.key||"wp", PW=R.power||{};
   const D=[]; let sec=0; const toc=[];
   const H1=(id,text)=>{sec++; toc.push({id,n:sec,text}); D.push({t:"h1",id,n:sec,text});};
   const H2=text=>D.push({t:"h2",text});
@@ -783,18 +881,21 @@ function buildDoc(S,R){
   D.push({t:"verdict",call:P.call,conf:P.conf,cov:R.score.coverage,score:R.score.value});
   const concl=[];
   concl.push(`**Parecer: ${P.call.toLowerCase()}**, com confiança ${P.conf}. A matriz de decisão soma ${R.score.value!=null?nf(R.score.value,1):"—"} de 5 sobre ${pct(R.score.coverage,0)} dos pesos com dados disponíveis.`);
-  if(R.pop2k) concl.push(`**Demanda:** cerca de ${nf(roundSig(R.pop2k))} moradores em 2 km (${nf(roundSig(R.dens2k))} hab/km²)${M.share15!=null?`; ${pct(M.share15,0)} da população do município tem 15 anos ou mais`:""}. Estimativa de modelo, não Censo.`);
+  if(R.pop2k) concl.push(`**Demanda:** cerca de ${nf(roundSig(R.pop2k))} moradores em 2 km (${nf(roundSig(R.dens2k))} hab/km²)${M.share15!=null?`; ${pct(M.share15,0)} da população do município tem 15 anos ou mais`:""}. ${R.popSrc.fallback?"Estimativa pela densidade média do município, porque o modelo WorldPop não respondeu; confirme antes de decidir.":"Estimativa de modelo, não Censo."}`);
   else concl.push("**Demanda:** a estimativa de moradores por raio não ficou disponível nesta consulta.");
   if(!S.errs.fit){ const top=Object.entries(R.segCount).sort((a,b)=>b[1]-a[1])[0]; concl.push(`**Concorrência:** ${R.compR.r2000} academias e estúdios mapeados em 2 km${R.residentsPerGym?` (≈ ${nf(roundSig(R.residentsPerGym))} moradores por estabelecimento)`:""}${top?`, com predominância de ${top[0].toLowerCase()} (${top[1]})`:""}. ${R.compR.r1000} estão a até 1 km.`); }
   else concl.push("**Concorrência:** o levantamento no OpenStreetMap não respondeu nesta consulta; refaça a análise antes de decidir.");
+  if(PW.renda) concl.push(`**Poder de compra:** renda domiciliar per capita média de ${brl(PW.renda.media)}${PW.renda.mediana?` (mediana ${brl(PW.renda.mediana)})`:""} em ${m.nome}${PW.massa?`; os moradores em 2 km somam ≈ ${brl(roundSig(PW.massa))} de renda por mês`:""}${PW.ticketShare!=null?`; o ticket equivale a ${pct(PW.ticketShare,0)} da renda per capita ${PW.renda.mediana?"mediana":"média"}`:""}. Dado do município, não do entorno.`);
+  else if(PW.sal?.sm) concl.push(`**Poder de compra:** salário médio formal de ${nf(PW.sal.sm,1)} salários mínimos em ${m.nome} (CEMPRE ${PW.sal.year}); a renda do Censo 2022 não respondeu nesta consulta.`);
+  else concl.push("**Poder de compra:** a renda do município não ficou disponível nesta consulta.");
   if(M.som!=null) concl.push(`**Mercado:** no cenário base a unidade capta ≈ ${nf(roundSig(M.som))} alunos${M.sam?`, ${pct(M.somShare,0)} do mercado atendível estimado (${nf(roundSig(M.sam))} pessoas)`:""}. Valores dependem de hipóteses de adesão.`);
   if(F.ok){ const b=F.scen?.find(s=>s.n==="Base"); concl.push(`**Viabilidade:** equilíbrio com ${nf(Math.ceil(F.be))} alunos ativos${b?`; resultado de ${brl(b.res)}/mês no cenário base${b.pay?` e payback no mês ${b.pay}`:I.invest!=null?" e payback acima de 24 meses":""}`:""}.`); }
   else concl.push(`**Viabilidade:** não avaliada. Faltam ${F.missing.join(", ")}.`);
-  Ls(concl.slice(0,5),true);
+  Ls(concl.slice(0,6),true);
   if(P.imp.length) Co("**Impedimentos a resolver antes de avançar:** "+P.imp.join(" "),"bad");
   H2("Principais riscos");
   Tb(["Risco","Evidência","Ação recomendada"],P.risks.map(r=>[C(r.t,"b"),r.e,r.a]),{widths:[110,"*","*"]});
-  if(!g.house) Co("O número do imóvel não foi localizado na base de endereços. Este estudo avalia a região, não um imóvel específico.");
+  if(!g.house) Co(g.numberAsked?`A rua foi localizada, mas o número ${g.numberAsked} não está no mapa: o ponto usado é um trecho da rua (${g.display}). Para analisar o imóvel exato, cole as coordenadas dele (no Google Maps, clique com o botão direito no imóvel e copie os números).`:"O número do imóvel não foi localizado na base de endereços. Este estudo avalia a região, não um imóvel específico.");
 
   /* 2. Introdução e objetivos */
   H1("intro","Introdução e objetivos");
@@ -817,14 +918,16 @@ function buildDoc(S,R){
   Tb(["Dimensão","Fonte","Recorte","Referência","Classificação"],[
     ["Localização",g.method,"Ponto","Consulta "+dt,C("Verificada","ver")],
     ["População, densidade, idade","IBGE, Censo 2022 (tabelas 4714 e 9514)","Município","2022",C(m.pop?"Verificada":"Não disponível",m.pop?"ver":"na")],
+    ["Renda domiciliar per capita","IBGE, Censo 2022 (10295)","Município","2022",C(m.renda?"Verificada":"Não disponível",m.renda?"ver":"na")],
+    ["Salário médio formal","IBGE, CEMPRE (1685)","Município",m.sal?.year||"—",C(m.sal?"Verificada":"Não disponível",m.sal?"ver":"na")],
     ["PIB per capita","IBGE, PIB dos Municípios (5938)","Município",m.pibpc?.year||"—",C(m.pibpc?"Estimada":"Não disponível",m.pibpc?"est":"na")],
-    ["Moradores por raio","WorldPop, grade de 100 m","500 m, 1 km, 2 km","2020",C(S.pop?"Estimada":"Não disponível",S.pop?"est":"na")],
+    ["Moradores por raio",PK==="wp"?"WorldPop, grade de 100 m":"Densidade média do município (Censo 2022)","500 m, 1 km, 2 km",PK==="wp"?"2020":"2022",C(R.pop2k?"Estimada":"Não disponível",R.pop2k?"est":"na")],
     ["Concorrentes e rede Omega","OpenStreetMap (Overpass)","3 km e 12 km","Consulta "+dt,C(S.errs.fit?"Não disponível":"Verificada*",S.errs.fit?"na":"ver")],
     ["Geradores de fluxo e barreiras","OpenStreetMap (Overpass)","2 km","Consulta "+dt,C(S.errs.ctx?"Não disponível":"Verificada*",S.errs.ctx?"na":"ver")],
     ["Premissas do negócio","Usuário","Imóvel","Consulta "+dt,C(F.ok?"Informada pelo usuário":"Não disponível",F.ok?"inf":"na")],
     ["Adesão e captação","Hipóteses editáveis","2 km","—",C("Hipótese de cenário","hip")]
   ],{widths:[95,110,70,55,"*"]});
-  SrcL("geo","ibge","wp","osm");
+  SrcL("geo","ibge","renda","sal",PK,"osm");
   H2("Classificação dos dados");
   Tb(["Classe","Significado"],[
     [C("Verificada","ver"),"Fonte identificada, com data e recorte compatíveis. *No OpenStreetMap a existência é verificada, mas a cobertura não é completa."],
@@ -834,8 +937,8 @@ function buildDoc(S,R){
     [C("Não disponível","na"),"Ausência relevante para a decisão; entra no plano de validação."]
   ],{widths:[110,"*"]});
   H2("Limitações");
-  Ls(["Renda do entorno, população diurna, fluxo de pedestres e preços de concorrentes não têm fonte aberta automatizada e aparecem como não disponíveis.","Os moradores por raio vêm de um modelo estatístico (WorldPop 2020), não do Censo por setor censitário.","Estrutura etária e PIB são do município inteiro e podem diferir do entorno.","O OpenStreetMap é mantido por voluntários: concorrentes podem faltar.","Distâncias são em linha reta; tempos de deslocamento não foram calculados."]);
-  if(Object.keys(S.errs).length) Co(`Consultas que não responderam nesta análise: ${Object.entries(S.errs).map(([k,v])=>`${({fit:"concorrência",ctx:"entorno",bar:"barreiras",cnt:"contagens",wp:"WorldPop",ibge:"IBGE",idade:"idade",pib:"PIB"})[k]||k} (${v})`).join("; ")}. Use "Refazer consultas" para tentar de novo.`,"bad");
+  Ls(["A renda usada é a média do município (Censo 2022); a renda por setor censitário do entorno, a população diurna, o fluxo de pedestres e os preços de concorrentes não têm fonte aberta automatizada.",R.popSrc?.fallback?"Os moradores por raio foram estimados pela densidade média do município, porque o modelo WorldPop não respondeu: bairros mais ou menos densos que a média ficam subestimados ou superestimados.":"Os moradores por raio vêm de um modelo estatístico (WorldPop 2020), não do Censo por setor censitário.","Estrutura etária e PIB são do município inteiro e podem diferir do entorno.","O OpenStreetMap é mantido por voluntários: concorrentes podem faltar.","Distâncias são em linha reta; tempos de deslocamento não foram calculados."]);
+  if(Object.keys(S.errs).length) Co(`Consultas que não responderam nesta análise: ${Object.entries(S.errs).map(([k,v])=>`${({fit:"concorrência",fitName:"busca de concorrentes pelo nome",ctx:"entorno",bar:"barreiras",cnt:"contagens",wp:"WorldPop",ibge:"IBGE",idade:"idade",pib:"PIB",renda:"renda do Censo",sal:"salário médio"})[k]||k} (${v})`).join("; ")}. Use "Refazer consultas" para tentar de novo.`,"bad");
 
   /* 4. Mercado */
   H1("mercado","Tamanho do mercado (TAM, SAM, SOM)");
@@ -850,7 +953,7 @@ function buildDoc(S,R){
     ["SOM (cenário base)",`Moradores 2 km × penetração ${I.pen.base!=null?nf(I.pen.base,1)+"%":"—"}`,M.som!=null?nf(roundSig(M.som)):"—",M.somR!=null?brl(roundSig(M.somR)):"—",C("Hipótese de cenário","hip")],
     ["Referência: parcela justa",`SAM ÷ (concorrentes em 2 km + 1)`,M.fair!=null?nf(roundSig(M.fair)):"—","—",C("Estimada","est")]
   ],{widths:[80,"*",50,75,75],num:[2,3]});
-  SrcL("wp","idade","hyp",...(I.ticket?["user"]:[]));
+  SrcL(PK,"idade","hyp",...(I.ticket?["user"]:[]));
   if(M.incoherent) Co(`A captação do cenário base (${nf(roundSig(M.som))}) supera o mercado atendível (${nf(roundSig(M.sam))}). Reveja a penetração ou as hipóteses de adesão.`,"bad");
   if(M.somShare!=null && !M.incoherent) Pp(`O cenário base exige capturar **${pct(M.somShare,0)} do SAM**${M.fair!=null?`; a parcela justa, dividindo o SAM igualmente entre os ${R.compR.r2000+1} ofertantes, seria ≈ ${nf(roundSig(M.fair))} alunos`:""}. Receita anual potencial usa o ticket informado × 12.`);
   Co("TAM, SAM e SOM são cenários, não demanda comprovada. Substitua a taxa de prática e a compatibilidade por pesquisa local ou dados de unidades semelhantes.","info");
@@ -864,8 +967,9 @@ function buildDoc(S,R){
     H2("População por anel");
     Ch("Moradores por anel, sem sobreposição",T=>svgVBar(T,R.rings.map(r=>({label:r.lbl,value:r.v})),{fmt:v=>nf(roundSig(v))}));
     Tb(["Anel","Moradores","Área (km²)","Densidade (hab/km²)"],R.rings.map(r=>[r.lbl,nf(roundSig(r.v)),nf(r.area,2),nf(roundSig(r.v/r.area))]).concat([[C("Total 2 km","b"),C(nf(roundSig(R.pop2k)),"b"),nf(Math.PI*4,2),nf(roundSig(R.dens2k))]]),{widths:["*",80,80,100],num:[1,2,3]});
-    SrcL("wp");
-  } else Co("Moradores por raio indisponíveis nesta consulta. A população do bairro ou do município não foi usada como substituto.");
+    SrcL(PK);
+    if(R.popSrc.fallback) Co(`O modelo WorldPop não respondeu nesta consulta (${S.errs.wp||"sem resposta"}). Os moradores foram estimados pela ${R.popSrc.long}; todos os anéis ficam com a mesma densidade. Use "Refazer consultas" para tentar o WorldPop de novo.`);
+  } else Co("Moradores por raio indisponíveis nesta consulta: nem o WorldPop nem a densidade do município responderam.");
   if(!S.errs.ctx){
     H2("Geradores de fluxo");
     const cats=["Estações (trem/metrô)","Pontos de ônibus","Escolas","Faculdades","Supermercados","Shoppings e lojas âncora","Hospitais e clínicas","Parques e praças"];
@@ -885,8 +989,8 @@ function buildDoc(S,R){
   /* 6. Consumidor */
   H1("consumidor","Perfil e comportamento do consumidor");
   if(m.idade){ Ch(`Estrutura etária de ${m.nome}`,T=>svgHBar(T,m.idade.bands.map(b=>({label:b.label,value:b.s})),{fmt:v=>pct(v),labelW:120})); SrcL("idade"); }
-  Tb(["Indicador do município","Valor","Classificação"],[["População residente",m.pop?nf(m.pop):"—",C(m.pop?"Verificada":"Não disponível",m.pop?"ver":"na")],["Densidade demográfica",m.dens?nf(m.dens,1)+" hab/km²":"—",C(m.dens?"Verificada":"Não disponível",m.dens?"ver":"na")],["PIB per capita",m.pibpc?`${brl(m.pibpc.value)} (${m.pibpc.year})`:"—",C(m.pibpc?"Estimada":"Não disponível",m.pibpc?"est":"na")],["Renda domiciliar do entorno","—",C("Não disponível","na")]],{widths:["*",120,110],num:[1]});
-  SrcL("ibge","pib"); Pp("PIB per capita mede a atividade econômica do município, não a renda das famílias do entorno. Capacidade econômica não equivale a disposição para pagar.");
+  Tb(["Indicador do município","Valor","Classificação"],[["População residente",m.pop?nf(m.pop):"—",C(m.pop?"Verificada":"Não disponível",m.pop?"ver":"na")],["Densidade demográfica",m.dens?nf(m.dens,1)+" hab/km²":"—",C(m.dens?"Verificada":"Não disponível",m.dens?"ver":"na")],["Renda domiciliar per capita média",m.renda?brl(m.renda.media):"—",C(m.renda?"Verificada":"Não disponível",m.renda?"ver":"na")],["PIB per capita",m.pibpc?`${brl(m.pibpc.value)} (${m.pibpc.year})`:"—",C(m.pibpc?"Estimada":"Não disponível",m.pibpc?"est":"na")]],{widths:["*",120,110],num:[1]});
+  SrcL("ibge","renda","pib"); Pp("A análise detalhada de renda e consumo está na seção Poder de compra.");
   H2("Segmentos locais a investigar");
   const b=m.idade?.bands; const segs=[["Jovens adultos: força, estética, performance",b?`15 a 29 anos = ${pct(b[1].s)} do município${R.poiCat["Faculdades"]?.r2000?`; ${R.poiCat["Faculdades"].r2000} faculdade(s) em 2 km`:""}`:"—","Sensibilidade a preço, horário noturno, presença de redes de baixo custo"],
     ["Adultos com rotina de trabalho: conveniência, condicionamento",b?`30 a 59 anos = ${pct(b[2].s+b[3].s)} do município${R.cnt?`; ${nf(R.cnt.office.r1000)} escritórios em 1 km`:""}`:"—","Picos de 6h a 9h e 18h a 21h, estacionamento, convênios corporativos"],
@@ -894,6 +998,25 @@ function buildDoc(S,R){
   if((R.segCount["Estúdio de pilates"]||0)+(R.segCount["Funcional / cross"]||0)>=3) segs.push(["Público de estúdios (pilates, funcional)",`${(R.segCount["Estúdio de pilates"]||0)+(R.segCount["Funcional / cross"]||0)} estúdios em 2 km`,"Se a Omega compete ou complementa; ticket e frequência desse público"]);
   Tb(["Segmento (hipótese)","Evidência disponível","O que investigar"],segs,{widths:[130,"*","*"]});
   Pp("Segmentos são hipóteses de trabalho; a demanda de cada um precisa de pesquisa local e teste de pré-venda.");
+
+  /* Poder de compra */
+  H1("poder","Poder de compra");
+  Pp("Mede se o público do entorno consegue pagar a mensalidade. A renda vem do Censo 2022 para o município inteiro; os sinais do entorno, do OpenStreetMap, indicam se a região tende a estar acima ou abaixo da média.");
+  const tsLbl=PW.renda?.mediana?"mediana":"média";
+  Tb(["Indicador","Valor","Recorte","Classificação"],[
+    ["Renda domiciliar per capita média",PW.renda?brl(PW.renda.media)+"/mês":"—",`Município, 2022`,C(PW.renda?"Verificada":"Não disponível",PW.renda?"ver":"na")],
+    ["Renda domiciliar per capita mediana",PW.renda?.mediana?brl(PW.renda.mediana)+"/mês":"—",`Município, 2022`,C(PW.renda?.mediana?"Verificada":"Não disponível",PW.renda?.mediana?"ver":"na")],
+    ["Salário médio do emprego formal",PW.sal?[PW.sal.reais?brl(PW.sal.reais):null,PW.sal.sm?nf(PW.sal.sm,1)+" SM":null].filter(Boolean).join(" · "):"—",`Município, ${PW.sal?.year||"—"}`,C(PW.sal?"Verificada":"Não disponível",PW.sal?"ver":"na")],
+    ["PIB per capita",PW.pibpc?brl(PW.pibpc.value)+"/ano":"—",`Município, ${PW.pibpc?.year||"—"}`,C(PW.pibpc?"Estimada":"Não disponível",PW.pibpc?"est":"na")],
+    ["Renda mensal dos moradores em 2 km",PW.massa?"≈ "+brl(roundSig(PW.massa)):"—","Moradores 2 km × renda média",C(PW.massa?"Estimada":"Não disponível",PW.massa?"est":"na")],
+    ["Ticket ÷ renda per capita "+tsLbl,PW.ticketShare!=null?pct(PW.ticketShare,1):"—","Ticket informado",C(PW.ticketShare!=null?"Estimada":"Não disponível",PW.ticketShare!=null?"est":"na")],
+    ["Comércios por mil moradores (2 km)",PW.shopsPer1k!=null?nf(PW.shopsPer1k,1):"—","Entorno",C(PW.shopsPer1k!=null?"Estimada":"Não disponível",PW.shopsPer1k!=null?"est":"na")],
+    ["Prédios de apartamentos entre as edificações (1 km)",PW.apt!=null?pct(PW.apt):"—","Entorno",C(PW.apt!=null?"Estimada":"Não disponível",PW.apt!=null?"est":"na")]
+  ],{widths:["*",110,100,85],num:[1]});
+  SrcL("renda","sal","pib",PK,"osm");
+  if(PW.ticketShare!=null) Pp(`A mensalidade informada (${brl(I.ticket)}) equivale a **${pct(PW.ticketShare,1)}** da renda per capita ${tsLbl} do município. ${PW.ticketShare>0.15?"É um peso alto no orçamento: o público-alvo provavelmente está na faixa de renda acima da mediana, o que reduz o mercado atendível.":PW.ticketShare>0.08?"Peso moderado: cabe no orçamento de boa parte dos adultos com renda acima da mediana.":"Peso baixo no orçamento da maior parte dos moradores."}`);
+  if(PW.renda?.mediana&&PW.renda.media/PW.renda.mediana>1.7) Pp(`A média (${brl(PW.renda.media)}) é ${nf(PW.renda.media/PW.renda.mediana,1)} vezes a mediana (${brl(PW.renda.mediana)}): a renda do município é concentrada, e o bairro pode estar bem acima ou bem abaixo da média.`);
+  Pp("Comércio denso e verticalização sugerem consumo mais forte, mas não substituem a renda do entorno. Para fechar essa lacuna, use a renda por setor censitário do Censo 2022 (plano de validação).");
 
   /* 7. Concorrência */
   H1("concorrencia","Análise da concorrência");
@@ -966,7 +1089,7 @@ function buildDoc(S,R){
   if(S.errs.fit) Pp("Indisponível.");
   else Tb(["Nome","Segmento","Distância","Endereço","Horário","Contato","Fonte"],R.comp.map(c=>[c.name,c.seg,nf(c.d)+" m",c.addr,c.hours,[c.site,c.phone].filter(Boolean).join(" · ")||"—",{text:"OSM "+c.id,link:"https://www.openstreetmap.org/"+c.id}]),{widths:[85,60,40,"*",55,60,50],num:[2],small:true});
   H2("Apêndice B · Referências");
-  Ls([`Localização: ${g.method}. https://www.openstreetmap.org/?mlat=${g.lat}&mlon=${g.lon}`,`IBGE, Censo Demográfico 2022, tabelas 4714 e 9514. https://sidra.ibge.gov.br/tabela/4714`,`IBGE, PIB dos Municípios, tabela 5938. https://sidra.ibge.gov.br/tabela/5938`,`WorldPop, Global High Resolution Population Denominators, 2020. https://www.worldpop.org/`,`OpenStreetMap, via Overpass API. https://www.openstreetmap.org/copyright`,`Escopo de análise: Artur, Inteligência de Mercado e Expansão Omega Academia.`,`Data e hora da consulta: ${dtl}${S.cache?.length?` (reaproveitado do cache local: ${S.cache.join("; ")})`:""}.`]);
+  Ls([`Localização: ${g.method}. https://www.openstreetmap.org/?mlat=${g.lat}&mlon=${g.lon}`,`IBGE, Censo Demográfico 2022, tabelas 4714 e 9514. https://sidra.ibge.gov.br/tabela/4714`,`IBGE, PIB dos Municípios, tabela 5938. https://sidra.ibge.gov.br/tabela/5938`,`IBGE, Censo Demográfico 2022, rendimento domiciliar per capita, tabela 10295. https://sidra.ibge.gov.br/tabela/10295`,`IBGE, Cadastro Central de Empresas, tabela 1685. https://sidra.ibge.gov.br/tabela/1685`,`WorldPop, Global High Resolution Population Denominators, 2020. https://www.worldpop.org/`,`OpenStreetMap, via Overpass API. https://www.openstreetmap.org/copyright`,`Escopo de análise: Artur, Inteligência de Mercado e Expansão Omega Academia.`,`Data e hora da consulta: ${dtl}${S.cache?.length?` (reaproveitado do cache local: ${S.cache.join("; ")})`:""}.`]);
   H2("Apêndice C · Glossário");
   Tb(["Termo","Definição"],[["TAM","Mercado total: pessoas no raio que praticam atividade em academia."],["SAM","Mercado atendível: parcela do TAM compatível com a proposta e o preço."],["SOM","Mercado capturável: alunos que a unidade espera captar."],["MRR","Receita mensal recorrente normalizada, sem receitas pontuais."],["Ponto de equilíbrio","Custos fixos ÷ contribuição mensal por aluno."],["Payback","Mês em que o caixa acumulado após o investimento fica não negativo."],["Penetração","Alunos ativos estabilizados ÷ moradores em 2 km."]],{widths:[90,"*"]});
   return {meta,blocks:D,toc};
@@ -1147,6 +1270,7 @@ function compare(){
   ${row("Cobertura dos pesos",i=>pct(i.R.score.coverage,0))}
   ${Object.entries(CRIT).map(([k,c])=>row(`${c.n} (${c.w}%)`,i=>i.R.score.items[k]?.v??"—")).join("")}
   ${row("Moradores em 2 km (est.)",i=>i.R.pop2k?nf(roundSig(i.R.pop2k)):"—")}
+  ${row("Renda per capita do município",i=>i.S.mun?.renda?brl(i.S.mun.renda.media):"—")}
   ${row("Concorrentes em 1 km",i=>i.S.errs.fit?"—":i.R.compR.r1000)}
   ${row("Concorrentes em 2 km",i=>i.S.errs.fit?"—":i.R.compR.r2000)}
   ${row("Moradores por estabelecimento",i=>i.R.residentsPerGym?nf(roundSig(i.R.residentsPerGym)):"—")}

@@ -3,6 +3,7 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import { auditLog, marketStudies, priorities, projects } from "../db/schema";
 import { newId } from "../lib/crypto";
+import { worldpopPopulation, WorldPopError } from "../integrations/worldpop";
 import { auditInsert, likePattern, notFound, parseBody, serialize } from "./helpers";
 import { requireRole, type AppEnv, type RequestContext } from "./context";
 
@@ -21,6 +22,12 @@ const studyCreate = z.strictObject({
   coverage: z.number().min(0).max(1).nullable().optional(),
   analyzedAt: z.iso.datetime({ offset: true }),
   stateGz: z.string().max(MAX_STATE, "estudo grande demais para guardar").regex(/^[A-Za-z0-9+/=]*$/, "formato inválido").nullable().optional(),
+});
+
+const populationQuery = z.object({
+  lat: z.coerce.number().min(-90).max(90),
+  lon: z.coerce.number().min(-180).max(180),
+  r: z.coerce.number().int().min(100).max(5000),
 });
 
 const studyProject = z.strictObject({ priority: z.enum(priorities).optional() });
@@ -48,6 +55,18 @@ function projectDescription(ctx: RequestContext, s: typeof marketStudies.$inferS
 }
 
 export function registerMarket(api: Hono<AppEnv>) {
+  /** Moradores num raio (WorldPop), consultado pelo servidor porque o navegador não consegue mais ler a resposta. */
+  api.get("/market-studies/population", async (c) => {
+    const q = populationQuery.safeParse(c.req.query());
+    if (!q.success) return c.json({ error: "informe lat, lon e r (100 a 5000 m)" }, 400);
+    try {
+      return c.json({ total: await worldpopPopulation(q.data.lat, q.data.lon, q.data.r), source: "WorldPop 2020" });
+    } catch (e) {
+      if (e instanceof WorldPopError) return c.json({ error: e.message }, 502);
+      throw e;
+    }
+  });
+
   api.get("/market-studies", async (c) => {
     const ctx = c.get("ctx");
     const q = c.req.query("q")?.trim();
