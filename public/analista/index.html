@@ -327,23 +327,61 @@ async function geocode(q){
     try{ const r=await fetchJSON(`${NOM}/reverse?format=jsonv2&addressdetails=1&accept-language=pt-BR&lat=${lat}&lon=${lon}`); const n=fromNominatim(r,"Coordenadas informadas"); g={...n,lat,lon,house:n.house||"(coordenada)"}; }catch(e){}
     return {best:g, cands:[]};
   }
-  try{
-    const res=await fetchJSON(`${NOM}/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=br&accept-language=pt-BR&q=${encodeURIComponent(q)}`);
-    if(res.length) { const list=res.map(r=>fromNominatim(r,"Nominatim/OpenStreetMap")); return {best:list[0], cands:list.slice(1)}; }
-  }catch(e){ console.warn("Nominatim falhou",e); }
+  // O endereço digitado nem sempre bate com o mapa (bairro colado na cidade, "Estrada Crispim" em vez de
+  // "Estrada do Crispim", estado repetido). Tenta o texto inteiro e depois versões mais simples, montadas com a
+  // cidade reconhecida na lista de municípios do IBGE.
+  const tries=await geocodeVariants(q);
+  for(const t of tries){
+    try{
+      const res=await fetchJSON(`${NOM}/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=br&accept-language=pt-BR&${t.params}`);
+      const list=res.map(r=>fromNominatim(r,t.method)).filter(x=>!t.city||norm(x.city)===norm(t.city));
+      if(list.length){ if(t.number&&!list[0].house) list.forEach(x=>x.numberAsked=t.number); return {best:list[0], cands:list.slice(1)}; }
+    }catch(e){ console.warn("Nominatim falhou",t.label,e.message); if(!/HTTP 4/.test(e.message)) break; }
+  }
   // fallback Photon (Komoot), também baseado em OSM
-  const ph=await fetchJSON(`https://photon.komoot.io/api/?limit=5&q=${encodeURIComponent(q+", Brasil")}`);
-  const list=(ph.features||[]).filter(f=>(f.properties.countrycode||"").toUpperCase()==="BR").map(f=>{const p=f.properties;return{
+  let list=[];
+  for(const t of tries){ const ph=await fetchJSON(`https://photon.komoot.io/api/?limit=5&q=${encodeURIComponent(t.text+", Brasil")}`).catch(()=>({}));
+  list=(ph.features||[]).filter(f=>(f.properties.countrycode||"").toUpperCase()==="BR").map(f=>{const p=f.properties;return{
     lat:f.geometry.coordinates[1], lon:f.geometry.coordinates[0], method:"Photon/OpenStreetMap",
     display:[p.name,p.street,p.housenumber,p.district||p.locality,p.city,p.state].filter(Boolean).join(", "),
-    house:p.housenumber||"", road:p.street||p.name||"", suburb:p.district||p.locality||"", city:p.city||p.county||"", uf:UF_BY_NAME[norm(p.state)]||"", state:p.state||"", postcode:p.postcode||""};});
+    house:p.housenumber||"", road:p.street||p.name||"", suburb:p.district||p.locality||"", city:p.city||p.county||"", uf:UF_BY_NAME[norm(p.state)]||"", state:p.state||"", postcode:p.postcode||""};}).filter(x=>!t.city||norm(x.city)===norm(t.city));
+    if(list.length){ if(t.number&&!list[0].house) list.forEach(x=>x.numberAsked=t.number); break; } }
   if(!list.length) throw new Error("Endereço não encontrado. Confira a grafia, inclua a cidade e a UF, ou informe as coordenadas.");
   return {best:list[0], cands:list.slice(1)};
 }
 
+// Variantes da busca, da mais completa para a mais simples.
+async function geocodeVariants(q){
+  const T=[{params:"q="+encodeURIComponent(q),text:q,method:"Nominatim/OpenStreetMap",label:"texto inteiro"}];
+  const parts=q.split(/[,;\n]+/).map(x=>x.trim()).filter(Boolean);
+  const nq=norm(q);
+  let uf=(parts.map(x=>x.toUpperCase()).find(x=>UF_CODE[x]))||Object.entries(UF_BY_NAME).find(([k])=>parts.some(x=>norm(x)===k))?.[1]||"";
+  if(!uf){ const m=q.match(/[\s\-\/]([A-Za-z]{2})\s*$/); if(m&&UF_CODE[m[1].toUpperCase()]) uf=m[1].toUpperCase(); }
+  const number=(parts.find(x=>/^(n[ºo°.]?\s*)?\d{1,6}[a-z]?$/i.test(x))||"").replace(/\D+$/,"").replace(/^\D+/,"");
+  const street=parts[0]&&!/^\d/.test(parts[0])?parts[0]:"";
+  let city="";
+  if(uf){ try{ const tail=norm(parts.slice(1).join(" ")); const m=(await ibgeMunicipios(uf)).filter(x=>(" "+tail+" ").includes(" "+norm(x.nome)+" ")).sort((a,b)=>b.nome.length-a.nome.length)[0]; if(m) city=m.nome; }catch(e){} }
+  if(!city||!street) return T;
+  const st=uf?`&state=${encodeURIComponent(Object.entries(UF_BY_NAME).find(([,v])=>v===uf)?.[0]||uf)}`:"";
+  const add=(label,params,method,text)=>T.push({label,params,method,city,number,text:text||decodeURIComponent(params.replace(/^q=/,""))});
+  add("rua, número e cidade",`street=${encodeURIComponent((number?number+" ":"")+street)}&city=${encodeURIComponent(city)}${st}`,"Nominatim/OpenStreetMap",`${street}, ${number}, ${city}, ${uf}`);
+  add("rua e cidade",`q=${encodeURIComponent(`${street}, ${city}, ${uf}`)}`,"Nominatim/OpenStreetMap (rua; número não encontrado no mapa)");
+  const shortStreet=street.replace(/^(rua|r\.|avenida|av\.?|estrada|estr\.?|rodovia|travessa|alameda|al\.)\s+/i,"");
+  if(shortStreet!==street) add("nome da rua e cidade",`q=${encodeURIComponent(`${shortStreet}, ${city}, ${uf}`)}`,"Nominatim/OpenStreetMap (rua; número não encontrado no mapa)");
+  const bairro=parts.slice(1).map(x=>norm(x).replace(norm(city),"").trim()).find(x=>x&&!/^\d/.test(x)&&!UF_CODE[x.toUpperCase()]&&!UF_BY_NAME[x]);
+  if(bairro) add("bairro e cidade",`q=${encodeURIComponent(`${bairro}, ${city}, ${uf}`)}`,"Nominatim/OpenStreetMap (bairro; rua não encontrada no mapa)");
+  return T;
+}
+
 /* ===================== IBGE ===================== */
 const UF_CODE={RO:11,AC:12,AM:13,RR:14,PA:15,AP:16,TO:17,MA:21,PI:22,CE:23,RN:24,PB:25,PE:26,AL:27,SE:28,BA:29,MG:31,ES:32,RJ:33,SP:35,PR:41,SC:42,RS:43,MS:50,MT:51,GO:52,DF:53};
+const MUN_LIST={};
+const ibgeMunicipios=uf=>MUN_LIST[uf]||(MUN_LIST[uf]=ibgeMunicipiosRaw(uf).catch(e=>{delete MUN_LIST[uf]; throw e;}));
 async function ibgeMunicipio(uf, city){
+  const list=await ibgeMunicipios(uf);
+  const n=norm(city); return list.find(m=>norm(m.nome)===n) || list.find(m=>norm(m.nome).startsWith(n)||n.startsWith(norm(m.nome)));
+}
+async function ibgeMunicipiosRaw(uf){
   let list;
   try{ list=await fetchJSON(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`); }
   catch(e){ // reserva: a mesma lista pelo SIDRA, que responde quando a API de localidades cai
@@ -351,7 +389,7 @@ async function ibgeMunicipio(uf, city){
     const r=await fetchJSON(`https://apisidra.ibge.gov.br/values/t/4714/n6/in%20n3%20${UF_CODE[uf]}/v/93/p/2022`);
     list=r.slice(1).map(x=>({id:+x.D1C,nome:String(x.D1N).replace(/\s*[-(]\s*[A-Z]{2}\)?$/,"")}));
   }
-  const n=norm(city); return list.find(m=>norm(m.nome)===n) || list.find(m=>norm(m.nome).startsWith(n)||n.startsWith(norm(m.nome)));
+  return list;
 }
 // Retorna [{v, year, value, unit, name}] tentando a API SIDRA e, se falhar, a API de agregados v3.
 const ibgeVars=(t,v,p,id)=>cached(`ibge|${t}|${v}|${p}|${id}`,"IBGE",()=>ibgeVarsRaw(t,v,p,id));
@@ -844,7 +882,7 @@ function buildDoc(S,R){
   if(P.imp.length) Co("**Impedimentos a resolver antes de avançar:** "+P.imp.join(" "),"bad");
   H2("Principais riscos");
   Tb(["Risco","Evidência","Ação recomendada"],P.risks.map(r=>[C(r.t,"b"),r.e,r.a]),{widths:[110,"*","*"]});
-  if(!g.house) Co("O número do imóvel não foi localizado na base de endereços. Este estudo avalia a região, não um imóvel específico.");
+  if(!g.house) Co(g.numberAsked?`A rua foi localizada, mas o número ${g.numberAsked} não está no mapa: o ponto usado é um trecho da rua (${g.display}). Para analisar o imóvel exato, cole as coordenadas dele (no Google Maps, clique com o botão direito no imóvel e copie os números).`:"O número do imóvel não foi localizado na base de endereços. Este estudo avalia a região, não um imóvel específico.");
 
   /* 2. Introdução e objetivos */
   H1("intro","Introdução e objetivos");
