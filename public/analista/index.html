@@ -330,14 +330,19 @@ async function geocode(q){
   // O endereço digitado nem sempre bate com o mapa (bairro colado na cidade, "Estrada Crispim" em vez de
   // "Estrada do Crispim", estado repetido). Tenta o texto inteiro e depois versões mais simples, montadas com a
   // cidade reconhecida na lista de municípios do IBGE.
-  const tries=await geocodeVariants(q);
-  for(const t of tries){
+  // As variantes só são montadas se o texto inteiro não for achado, para não atrasar a busca comum.
+  const tries=[{params:"q="+encodeURIComponent(q),text:q,method:"Nominatim/OpenStreetMap",label:"texto inteiro"}]; let more=false;
+  const extend=async()=>{ if(more) return; more=true; try{ tries.push(...(await geocodeVariants(q)).slice(1)); }catch(e){} };
+  for(let i=0;i<tries.length;i++){ const t=tries[i];
+    if(i) await sleep(1000); // limite de uso do Nominatim: uma consulta por segundo
     try{
       const res=await fetchJSON(`${NOM}/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=br&accept-language=pt-BR&${t.params}`);
       const list=res.map(r=>fromNominatim(r,t.method)).filter(x=>!t.city||norm(x.city)===norm(t.city));
       if(list.length){ if(t.number&&!list[0].house) list.forEach(x=>x.numberAsked=t.number); return {best:list[0], cands:list.slice(1)}; }
     }catch(e){ console.warn("Nominatim falhou",t.label,e.message); if(!/HTTP 4/.test(e.message)) break; }
+    if(i===tries.length-1) await extend();
   }
+  await extend();
   // fallback Photon (Komoot), também baseado em OSM
   let list=[];
   for(const t of tries){ const ph=await fetchJSON(`https://photon.komoot.io/api/?limit=5&q=${encodeURIComponent(t.text+", Brasil")}`).catch(()=>({}));
@@ -360,9 +365,12 @@ async function geocodeVariants(q){
   const number=(parts.find(x=>/^(n[ºo°.]?\s*)?\d{1,6}[a-z]?$/i.test(x))||"").replace(/\D+$/,"").replace(/^\D+/,"");
   const street=parts[0]&&!/^\d/.test(parts[0])?parts[0]:"";
   let city="";
-  if(uf){ try{ const tail=norm(parts.slice(1).join(" ")); const m=(await ibgeMunicipios(uf)).filter(x=>(" "+tail+" ").includes(" "+norm(x.nome)+" ")).sort((a,b)=>b.nome.length-a.nome.length)[0]; if(m) city=m.nome; }catch(e){} }
+  const tail=" "+norm(parts.slice(1).join(" "))+" ";
+  const best=list=>list.filter(x=>tail.includes(" "+norm(x.nome)+" ")).sort((a,b)=>b.nome.length-a.nome.length)[0];
+  if(uf){ try{ const m=best(await ibgeMunicipios(uf)); if(m) city=m.nome; }catch(e){} }
+  else { try{ const m=best(await ibgeMunicipiosBR()); if(m){ city=m.nome; uf=m.uf; } }catch(e){} } // sem estado no texto: procura a cidade no Brasil inteiro
   if(!city||!street) return T;
-  const st=uf?`&state=${encodeURIComponent(Object.entries(UF_BY_NAME).find(([,v])=>v===uf)?.[0]||uf)}`:"";
+  const st=uf?`&state=${uf}`:"";
   const add=(label,params,method,text)=>T.push({label,params,method,city,number,text:text||decodeURIComponent(params.replace(/^q=/,""))});
   add("rua, número e cidade",`street=${encodeURIComponent((number?number+" ":"")+street)}&city=${encodeURIComponent(city)}${st}`,"Nominatim/OpenStreetMap",`${street}, ${number}, ${city}, ${uf}`);
   add("rua e cidade",`q=${encodeURIComponent(`${street}, ${city}, ${uf}`)}`,"Nominatim/OpenStreetMap (rua; número não encontrado no mapa)");
@@ -375,6 +383,11 @@ async function geocodeVariants(q){
 
 /* ===================== IBGE ===================== */
 const UF_CODE={RO:11,AC:12,AM:13,RR:14,PA:15,AP:16,TO:17,MA:21,PI:22,CE:23,RN:24,PB:25,PE:26,AL:27,SE:28,BA:29,MG:31,ES:32,RJ:33,SP:35,PR:41,SC:42,RS:43,MS:50,MT:51,GO:52,DF:53};
+// Todos os municípios do Brasil (nome e UF), para achar a cidade quando o endereço vem sem o estado.
+const ibgeMunicipiosBR=()=>cached("ibge|municipios-br","IBGE",async()=>{
+  try{ const r=await fetchJSON("https://servicodados.ibge.gov.br/api/v1/localidades/municipios?view=nivelado",{},15000,1); return r.map(x=>({id:+x["municipio-id"],nome:x["municipio-nome"],uf:x["UF-sigla"]})); }
+  catch(e){ const r=await fetchJSON("https://apisidra.ibge.gov.br/values/t/4714/n6/all/v/93/p/2022"); return r.slice(1).map(x=>{const m=String(x.D1N).match(/^(.*?)\s*-\s*([A-Z]{2})$/); return m?{id:+x.D1C,nome:m[1],uf:m[2]}:null;}).filter(Boolean); }
+});
 const MUN_LIST={};
 const ibgeMunicipios=uf=>MUN_LIST[uf]||(MUN_LIST[uf]=ibgeMunicipiosRaw(uf).catch(e=>{delete MUN_LIST[uf]; throw e;}));
 async function ibgeMunicipio(uf, city){
@@ -383,7 +396,7 @@ async function ibgeMunicipio(uf, city){
 }
 async function ibgeMunicipiosRaw(uf){
   let list;
-  try{ list=await fetchJSON(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`); }
+  try{ list=await fetchJSON(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`,{},15000,1); }
   catch(e){ // reserva: a mesma lista pelo SIDRA, que responde quando a API de localidades cai
     if(!UF_CODE[uf]) throw e;
     const r=await fetchJSON(`https://apisidra.ibge.gov.br/values/t/4714/n6/in%20n3%20${UF_CODE[uf]}/v/93/p/2022`);
