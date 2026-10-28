@@ -405,9 +405,12 @@ async function worldpopRaw(lat,lon,r){
 
 /* ===================== OpenStreetMap / Overpass ===================== */
 const OVERPASS=["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter","https://overpass.private.coffee/api/interpreter","https://maps.mail.ru/osm/tools/overpass/api/interpreter"];
-const overpass=q=>cached("ovp|"+q,"OpenStreetMap",()=>overpassRaw(q));
-async function overpassRaw(q){
-  const errs=[]; for(const u of OVERPASS){ try{ const j=await fetchJSON(u,{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}},120000,1);
+const overpass=(q,start=0)=>cached("ovp|"+q,"OpenStreetMap",()=>overpassRaw(q,start));
+// Cada consulta começa num servidor diferente e passa ao próximo assim que um recusa (lotado, 429, 5xx),
+// com prazo total de 2 minutos, para a análise não ficar presa quando o Overpass está sobrecarregado.
+async function overpassRaw(q,start=0){
+  const errs=[], end=Date.now()+120000, order=OVERPASS.map((_,i)=>OVERPASS[(i+start)%OVERPASS.length]);
+  for(let round=0;round<2;round++) for(const u of order){ const left=end-Date.now(); if(left<5000) break; try{ const j=await fetchJSON(u,{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}},Math.min(90000,left),0);
       if(j.remark&&/runtime error|timed out|out of memory/i.test(j.remark)) throw new Error("Overpass: "+j.remark.slice(0,80)); return j; }catch(e){ errs.push(new URL(u).host+": "+e.message); } }
   throw new Error(errs.join(" | "));
 }
@@ -527,12 +530,9 @@ async function analyse(S){
   // OSM (sequencial para respeitar limites do Overpass)
   tasks.push((async()=>{
     src("osm","run","OpenStreetMap · concorrência e entorno","Overpass API");
-    try{ S.fit=(await overpass(qFitness(lat,lon))).elements; }catch(e){ S.errs.fit=e.message; }
-    try{ S.fitN=(await overpass(qFitnessName(lat,lon))).elements; }catch(e){ S.errs.fitName=e.message; }
-    try{ S.omg=(await overpass(qOmega(lat,lon))).elements; }catch(e){ S.errs.omega=e.message; }
-    try{ S.ctx=(await overpass(qContext(lat,lon))).elements; }catch(e){ S.errs.ctx=e.message; }
-    try{ S.bar=(await overpass(qBarriers(lat,lon))).elements; }catch(e){ S.errs.bar=e.message; }
-    try{ S.cnt=(await overpass(qCounts(lat,lon))).elements; }catch(e){ S.errs.cnt=e.message; }
+    // Duas consultas por vez, cada uma começando num servidor diferente, para respeitar os limites do Overpass.
+    const Q=[["fit",qFitness,"fit"],["ctx",qContext,"ctx"],["omg",qOmega,"omega"],["cnt",qCounts,"cnt"],["bar",qBarriers,"bar"],["fitN",qFitnessName,"fitName"]];
+    for(let i=0;i<Q.length;i+=2) await Promise.all(Q.slice(i,i+2).map(([k,fq,ek],j)=>overpass(fq(lat,lon),i+j).then(r=>{S[k]=r.elements;},e=>{S.errs[ek]=e.message;})));
     const names={fit:"concorrência",omega:"rede Omega",ctx:"entorno",bar:"barreiras",cnt:"contagens"}; // a busca por nome é complementar e não entra aqui
     const fails=Object.keys(names).filter(k=>S.errs[k]);
     src("osm",fails.length===5?"err":"ok","OpenStreetMap · concorrência e entorno",fails.length?`falharam: ${fails.map(k=>names[k]).join(", ")} (${S.errs[fails[0]]}). Tente de novo em alguns minutos.`:"5 consultas concluídas");
